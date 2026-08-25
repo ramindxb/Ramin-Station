@@ -6,7 +6,7 @@
 
 A tactile retro desktop media toolkit for downloading media and preparing video files. It wraps FFmpeg and yt-dlp in a focused interface inspired by physical media decks, translucent hardware, and early desktop players.
 
-[Website](https://raminpiri.ir/station) · [Latest release](https://github.com/raminpiri/ramin-station/releases/latest) · [Report a bug](https://github.com/raminpiri/ramin-station/issues)
+[Website](https://raminpiri.ir/station) · [Latest release](https://github.com/ramindxb/Ramin-Station/releases/latest) · [Report a bug](https://github.com/ramindxb/Ramin-Station/issues)
 
 > Version 1.0 is an unsigned personal release for macOS and Windows. Read the platform notes before installing.
 
@@ -25,7 +25,7 @@ A tactile retro desktop media toolkit for downloading media and preparing video 
 
 ## Download and install
 
-Download the appropriate package from [GitHub Releases](https://github.com/raminpiri/ramin-station/releases/latest).
+Download the appropriate package from [GitHub Releases](https://github.com/ramindxb/Ramin-Station/releases/latest).
 
 ### macOS
 
@@ -116,4 +116,3 @@ FFmpeg, yt-dlp, and Deno are downloaded from their upstream release pages and ar
 Ramin Station is currently distributed under a personal-use, source-available license. It is not an OSI-approved open-source license. See [LICENSE](LICENSE).
 
 Copyright © 2026 Ramin Piri.
-

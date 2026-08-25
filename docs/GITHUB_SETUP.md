@@ -1,10 +1,10 @@
 # GitHub repository setup
 
-1. Create an empty repository named `ramin-station` under the `raminpiri` account. Do not add a README, license, or `.gitignore` on GitHub because this folder already contains them.
+1. Create an empty repository named `Ramin-Station` under the `ramindxb` account. Do not add a README, license, or `.gitignore` on GitHub because this folder already contains them.
 2. From this folder, add the remote and push:
 
    ```bash
-   git remote add origin git@github.com:raminpiri/ramin-station.git
+   git remote add origin https://github.com/ramindxb/Ramin-Station.git
    git push -u origin main
    ```
 
