@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: app/windows/go.mod
+          cache-dependency-path: app/windows/go.sum
+
+      - name: Check browser code
+        run: |
+          node --check app/tool.js
+          node --check app/server.js
+
+      - name: Type-check macOS app
+        run: swiftc -parse-as-library -typecheck -framework Cocoa -framework WebKit app/native/RaminStation.swift
+
+      - name: Build Windows packages
+        run: zsh app/windows/build-windows.sh

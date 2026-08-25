@@ -1,0 +1,30 @@
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.dSYM/
+
+# Local configuration and browser-cookie exports
+.env
+.env.*
+!.env.example
+cookies.txt
+*cookies*.txt
+
+# Generated application packages
+dist/
+release-assets/
+*.dmg
+*.zip
+*.exe
+*.app/
+
+# Generated Windows embed payloads
+app/windows/web/
+app/windows/installer/payload/
+
+# Local design sources and scratch files
+*.psd
+work/
+outputs/
+

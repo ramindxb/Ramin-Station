@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible problem in Ramin Station
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach browser cookies, cookie files, private URLs, or personal media.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ramin Station version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open Download
+        2. Select Auto Retry
+        3. Paste a public test URL
+        4. Click Download
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted terminal output
+      description: Remove usernames, local paths, URLs, cookies, and other private information.
+      render: shell
+

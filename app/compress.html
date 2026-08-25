@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ramin Station — Compress</title>
+  <link rel="stylesheet" href="tool.css" />
+</head>
+<body>
+  <main class="tool-shell tool-shell--compress" data-tool="compress">
+    <header class="tool-header">
+      <a class="back-key" href="index.html">‹ MAIN MENU</a>
+      <div class="brand">
+        <div class="brand__name">RAMIN STATION</div>
+        <div class="brand__path">COMPRESSION DECK</div>
+        <a class="brand-logo" href="https://raminpiri.ir/station" aria-label="Support Ramin Station"><i></i><i></i><span>SUPPORT ♥</span></a>
+      </div>
+      <div class="window-lights" aria-label="Window controls">
+        <button type="button" data-window="zoom" aria-label="Full screen"></button>
+        <button type="button" data-window="minimize" aria-label="Minimize"></button>
+        <button type="button" data-window="close" aria-label="Close"></button>
+      </div>
+    </header>
+
+    <section class="setup-rail" aria-label="Required tools">
+      <div class="setup-rail__label">SYSTEM CHECK</div>
+      <div class="dependency-list">
+        <div class="dependency" data-dependency="ffmpeg"><span class="dependency__lamp"></span><b>FFmpeg</b><small>checking</small></div>
+      </div>
+      <button class="mini-key" type="button" data-setup>SETUP / UPDATE</button>
+    </section>
+
+    <section class="workbench">
+      <label class="field-label" for="folder-path">SOURCE FILE OR FOLDER</label>
+      <div class="path-row">
+        <input class="text-input" id="folder-path" type="text" placeholder="Choose one video or a folder containing videos" autocomplete="off" />
+        <div class="source-picker"><button class="paste-key" type="button" data-paste>CHOOSE FOLDER</button><button class="paste-key" type="button" data-choose-file>CHOOSE FILE</button></div>
+      </div>
+
+      <div class="control-grid control-grid--compress">
+        <div class="control-block">
+          <span class="field-label">PROCESS</span>
+          <div class="choice-set" data-choice-group="processMode">
+            <button class="choice is-active" type="button" data-value="compress">COMPRESS<small>HEVC</small></button>
+            <button class="choice" type="button" data-value="decompress">DECOMPRESS<small>EDIT FAST</small></button>
+          </div>
+        </div>
+        <div class="control-block">
+          <span class="field-label">INPUT FILES</span>
+          <div class="choice-set" data-choice-group="inputType">
+            <button class="choice is-active" type="button" data-value="all">ALL<small>VIDEO</small></button>
+            <button class="choice" type="button" data-value="mp4">MP4</button>
+            <button class="choice" type="button" data-value="mov">MOV</button>
+          </div>
+        </div>
+        <div class="control-block" data-quality-block>
+          <span class="field-label">HEVC QUALITY</span>
+          <div class="choice-set" data-choice-group="quality">
+            <button class="choice" type="button" data-value="high">HIGH<small>CRF 21</small></button>
+            <button class="choice is-active" type="button" data-value="balanced">BALANCED<small>CRF 26</small></button>
+            <button class="choice" type="button" data-value="tiny">TINY<small>CRF 31</small></button>
+          </div>
+        </div>
+        <div class="control-block">
+          <span class="field-label">OUTPUT</span>
+          <div class="output-value"><span data-output-text>Source / Ramin Station HEVC</span><span class="codec-lock" data-output-codec>HEVC • H.265</span></div>
+        </div>
+      </div>
+
+      <section class="terminal-console" aria-label="Compression activity">
+        <div class="terminal-console__bar"><span><i></i><i></i><i></i><span data-terminal-title> HEVC TERMINAL</span></span><b data-progress-label>0%</b></div>
+        <div class="terminal-console__lines" data-terminal><p><em>›</em> Select one video or a source folder to begin…</p></div>
+        <div class="terminal-console__progress"><i data-progress-bar></i></div>
+      </section>
+
+      <div class="action-row">
+        <button class="action-key" type="button" data-run>
+          <span data-run-label>COMPRESS FOLDER</span>
+          <small>FOLDER • BALANCED • HEVC</small>
+        </button>
+        <button class="cancel-key" type="button" data-cancel disabled>CANCEL<small>STOP JOB</small></button>
+      </div>
+    </section>
+
+    <div class="readout"><span>FFMPEG • LIBX265</span><span class="readout__status" data-status>READY</span><span>DESKTOP V1.0</span></div>
+  </main>
+  <script src="tool.js"></script>
+</body>
+</html>

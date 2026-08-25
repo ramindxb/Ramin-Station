@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ramin Station</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="station" aria-label="Ramin Station media toolkit">
+    <img class="station__art" src="assets/base-ui.png" alt="Ramin Station media toolkit" draggable="false" />
+
+    <button class="physical-key physical-key--download is-selected" data-action="download" aria-label="Download">
+      <span class="physical-key__surface" aria-hidden="true"></span>
+    </button>
+
+    <button class="physical-key physical-key--compress" data-action="compress" aria-label="Compress">
+      <span class="physical-key__surface" aria-hidden="true"></span>
+    </button>
+
+    <div class="home-window-controls" aria-label="Window controls">
+      <button type="button" data-window="zoom" aria-label="Full screen"></button>
+      <button type="button" data-window="minimize" aria-label="Minimize"></button>
+      <button type="button" data-window="close" aria-label="Close"></button>
+    </div>
+
+    <a class="support-hotspot" href="https://raminpiri.ir/station" aria-label="Support Ramin Station">
+      <span>SUPPORT <b>♥</b></span>
+    </a>
+
+    <p class="status" role="status" aria-live="polite">DOWNLOAD SELECTED</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

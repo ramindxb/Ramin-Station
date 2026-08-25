@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: app/windows/go.mod
+          cache-dependency-path: app/windows/go.sum
+
+      - name: Build macOS packages
+        run: zsh app/native/build-macos.sh
+
+      - name: Build Windows packages
+        run: zsh app/windows/build-windows.sh
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          shasum -a 256 \
+            Ramin-Station-1.0-macOS.dmg \
+            Ramin-Station-1.0-macOS.zip \
+            Ramin-Station-1.0-Windows-Setup.exe \
+            Ramin-Station-1.0-Windows-Portable.zip \
+            > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -f "release-notes/${GITHUB_REF_NAME}.md" ]]; then
+            notes=(--notes-file "release-notes/${GITHUB_REF_NAME}.md")
+          else
+            notes=(--generate-notes)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/Ramin-Station-1.0-macOS.dmg \
+            dist/Ramin-Station-1.0-macOS.zip \
+            dist/Ramin-Station-1.0-Windows-Setup.exe \
+            dist/Ramin-Station-1.0-Windows-Portable.zip \
+            dist/SHA256SUMS.txt \
+            --verify-tag \
+            --title "Ramin Station ${GITHUB_REF_NAME#v}" \
+            "${notes[@]}"

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ramin Station — Download</title>
+  <link rel="stylesheet" href="tool.css" />
+</head>
+<body>
+  <main class="tool-shell tool-shell--download" data-tool="download">
+    <header class="tool-header">
+      <a class="back-key" href="index.html">‹ MAIN MENU</a>
+      <div class="brand">
+        <div class="brand__name">RAMIN STATION</div>
+        <div class="brand__path">DOWNLOAD DECK</div>
+        <a class="brand-logo" href="https://raminpiri.ir/station" aria-label="Support Ramin Station"><i></i><i></i><span>SUPPORT ♥</span></a>
+      </div>
+      <div class="window-lights" aria-label="Window controls">
+        <button type="button" data-window="zoom" aria-label="Full screen"></button>
+        <button type="button" data-window="minimize" aria-label="Minimize"></button>
+        <button type="button" data-window="close" aria-label="Close"></button>
+      </div>
+    </header>
+
+    <section class="setup-rail" aria-label="Required tools">
+      <div class="setup-rail__label">SYSTEM CHECK</div>
+      <div class="dependency-list">
+        <div class="dependency" data-dependency="ffmpeg"><span class="dependency__lamp"></span><b>FFmpeg</b><small>checking</small></div>
+        <div class="dependency" data-dependency="ytdlp"><span class="dependency__lamp"></span><b>yt-dlp</b><small>checking</small></div>
+        <div class="dependency" data-dependency="deno"><span class="dependency__lamp"></span><b>Deno</b><small>checking</small></div>
+      </div>
+      <button class="mini-key" type="button" data-setup>SETUP / UPDATE</button>
+    </section>
+
+    <section class="workbench">
+      <label class="field-label" for="media-url">PASTE VIDEO URL</label>
+      <div class="url-row">
+        <input class="text-input" id="media-url" type="url" placeholder="https://youtube.com/... or https://instagram.com/..." autocomplete="off" />
+        <button class="paste-key" type="button" data-paste>PASTE URL</button>
+      </div>
+
+      <div class="control-grid control-grid--download">
+        <div class="control-block">
+          <span class="field-label">MEDIA TYPE</span>
+          <div class="choice-set" data-choice-group="mediaType">
+            <button class="choice is-active" type="button" data-value="video">VIDEO</button>
+            <button class="choice" type="button" data-value="audio">AUDIO</button>
+          </div>
+        </div>
+        <div class="control-block">
+          <span class="field-label">QUALITY</span>
+          <div class="choice-set" data-choice-group="quality">
+            <button class="choice is-active" type="button" data-value="1080">1080P<small>BEST</small></button>
+            <button class="choice" type="button" data-value="720">720P<small>SMALLER</small></button>
+            <button class="choice" type="button" data-value="480">480P<small>LIGHT</small></button>
+          </div>
+        </div>
+        <div class="control-block">
+          <label class="field-label" for="cookie-source">ACCESS</label>
+          <select class="access-select" id="cookie-source">
+            <option value="auto">AUTO RETRY</option>
+            <option value="public">PUBLIC LINK</option>
+            <option value="chrome">CHROME COOKIES</option>
+            <option value="safari">SAFARI COOKIES</option>
+            <option value="edge">EDGE COOKIES</option>
+            <option value="firefox">FIREFOX COOKIES</option>
+            <option value="cookiefile">COOKIES.TXT FILE</option>
+          </select>
+          <button class="cookie-key" type="button" data-cookie-file hidden>CHOOSE COOKIES.TXT</button>
+        </div>
+        <div class="control-block">
+          <span class="field-label">SAVE TO</span>
+          <div class="output-value"><span>Downloads</span><span class="codec-lock">AUTO</span></div>
+        </div>
+      </div>
+
+      <section class="terminal-console" aria-label="Download activity">
+        <div class="terminal-console__bar"><span><i></i><i></i><i></i> DOWNLOAD TERMINAL</span><b data-progress-label>0%</b></div>
+        <div class="terminal-console__lines" data-terminal><p><em>›</em> Waiting for a URL…</p></div>
+        <div class="terminal-console__progress"><i data-progress-bar></i></div>
+      </section>
+
+      <div class="action-row">
+        <button class="action-key" type="button" data-run>
+          DOWNLOAD
+          <small>VIDEO • 1080P • MP4</small>
+        </button>
+        <button class="cancel-key" type="button" data-cancel disabled>CANCEL<small>STOP JOB</small></button>
+      </div>
+    </section>
+
+    <div class="readout"><span>YT-DLP + FFMPEG + DENO</span><span class="readout__status" data-status>READY</span><span>DESKTOP V1.0</span></div>
+  </main>
+  <script src="tool.js"></script>
+</body>
+</html>
