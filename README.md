@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/social-preview.png" alt="Ramin Station retro media toolkit" width="100%">
+  <img src="docs/program-v2-screenshot.png" alt="Ramin Station v2 application screenshot showing Download, Compress, and Visual Brain" width="100%">
 </p>
 
 # Ramin Station
