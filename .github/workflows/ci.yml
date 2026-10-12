@@ -23,7 +23,9 @@ jobs:
 
       - name: Check browser code
         run: |
+          node --check app/app.js
           node --check app/tool.js
+          node --check app/visual-brain.js
           node --check app/server.js
 
       - name: Type-check macOS app

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,8 +43,7 @@ window.webkit.messageHandlers.raminStation = {
 };
 document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('mousedown', event => {
-    if (event.button !== 0 || event.target.closest('button,a,input,select')) return;
-    if (event.clientY < Math.max(90, window.innerHeight * .14)) {
+    if (event.button === 0 && event.target.closest('[data-window-drag]')) {
       window.webkit.messageHandlers.raminStation.postMessage({id: Date.now(), action:'windowControl', payload:{control:'drag'}});
     }
   });
@@ -120,7 +120,10 @@ func serveAssets() (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "127.0.0.1:3187")
+	if err != nil {
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -156,6 +159,8 @@ func (a *application) handleBridge(raw string) map[string]any {
 		result, err = a.installTools(request.Payload)
 	case "download":
 		result, err = a.download(request.Payload)
+	case "visualBrainDownload":
+		result, err = a.visualBrainDownload(request.Payload)
 	case "compress":
 		result, err = a.compress(request.Payload)
 	case "chooseFolder":
@@ -173,6 +178,12 @@ func (a *application) handleBridge(raw string) map[string]any {
 	case "openExternal":
 		err = openExternal(stringValue(request.Payload, "url", ""))
 		result = map[string]any{"ok": err == nil}
+	case "visualBrainLoad":
+		result, err = a.loadVisualBrain()
+	case "visualBrainSave":
+		result, err = a.saveVisualBrain(request.Payload["state"])
+	case "visualBrainImportStart", "visualBrainImportChunk", "visualBrainImportFinish", "visualBrainImportAbort", "visualBrainRevealFile", "visualBrainDeleteFile":
+		result, err = a.handleVisualBrainFileAction(request.Action, request.Payload)
 	default:
 		err = errors.New("unknown action")
 	}
@@ -183,6 +194,175 @@ func (a *application) handleBridge(raw string) map[string]any {
 }
 
 func errorResult(err error) map[string]any { return map[string]any{"error": err.Error()} }
+
+func (a *application) visualBrainStatePath() string {
+	return filepath.Join(filepath.Dir(a.binDir), "visual-brain.json")
+}
+
+func (a *application) visualBrainMediaDirectory() string {
+	return filepath.Join(filepath.Dir(a.binDir), "Visual Brain Files")
+}
+
+func validVisualBrainStorageID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, character := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if character != '-' {
+				return false
+			}
+			continue
+		}
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *application) visualBrainItemDirectory(payload map[string]any) (string, error) {
+	storageID := stringValue(payload, "storageID", "")
+	if !validVisualBrainStorageID(storageID) {
+		return "", errors.New("visual Brain file ID is invalid")
+	}
+	root := filepath.Clean(a.visualBrainMediaDirectory())
+	directory := filepath.Clean(filepath.Join(root, storageID))
+	if !strings.HasPrefix(directory, root+string(os.PathSeparator)) {
+		return "", errors.New("visual Brain file location is invalid")
+	}
+	return directory, nil
+}
+
+func visualBrainStoredFile(directory string) (string, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".part") && !strings.HasSuffix(entry.Name(), ".ytdl") {
+			return filepath.Join(directory, entry.Name()), nil
+		}
+	}
+	return "", errors.New("the managed Visual Brain file is missing")
+}
+
+func safeVisualBrainFilename(value string) string {
+	name := filepath.Base(strings.TrimSpace(value))
+	name = strings.NewReplacer(":", "_", "/", "_", `\`, "_").Replace(name)
+	if name == "" || name == "." {
+		return "Untitled Media"
+	}
+	runes := []rune(name)
+	if len(runes) > 180 {
+		name = string(runes[:180])
+	}
+	return name
+}
+
+func (a *application) handleVisualBrainFileAction(action string, payload map[string]any) (map[string]any, error) {
+	directory, err := a.visualBrainItemDirectory(payload)
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "visualBrainImportStart":
+		if err := os.MkdirAll(a.visualBrainMediaDirectory(), 0o755); err != nil {
+			return nil, err
+		}
+		_ = os.RemoveAll(directory)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return nil, err
+		}
+		destination := filepath.Join(directory, safeVisualBrainFilename(stringValue(payload, "name", "Untitled Media")))
+		if err := os.WriteFile(destination, nil, 0o600); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "storageID": stringValue(payload, "storageID", "")}, nil
+	case "visualBrainImportChunk":
+		data, err := base64.StdEncoding.DecodeString(stringValue(payload, "data", ""))
+		if err != nil {
+			return nil, errors.New("the media copy chunk is invalid")
+		}
+		destination, err := visualBrainStoredFile(directory)
+		if err != nil {
+			return nil, err
+		}
+		file, err := os.OpenFile(destination, os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		_, writeErr := file.Write(data)
+		closeErr := file.Close()
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		return map[string]any{"ok": true}, nil
+	case "visualBrainImportFinish":
+		destination, err := visualBrainStoredFile(directory)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "name": filepath.Base(destination)}, nil
+	case "visualBrainImportAbort", "visualBrainDeleteFile":
+		if err := os.RemoveAll(directory); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	case "visualBrainRevealFile":
+		destination, err := visualBrainStoredFile(directory)
+		if err != nil {
+			return nil, err
+		}
+		if err := exec.Command("explorer.exe", "/select,"+destination).Start(); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	default:
+		return nil, errors.New("unknown Visual Brain file action")
+	}
+}
+
+func (a *application) loadVisualBrain() (map[string]any, error) {
+	data, err := os.ReadFile(a.visualBrainStatePath())
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]any{"state": map[string]any{"version": 1, "items": []any{}}}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not load Visual Brain: %w", err)
+	}
+	var state any
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("could not read Visual Brain data: %w", err)
+	}
+	return map[string]any{"state": state}, nil
+}
+
+func (a *application) saveVisualBrain(value any) (map[string]any, error) {
+	if value == nil {
+		return nil, errors.New("visual Brain data is missing")
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("could not encode Visual Brain: %w", err)
+	}
+	path := a.visualBrainStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return nil, err
+	}
+	_ = os.Remove(path)
+	if err := os.Rename(temporary, path); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
 
 func (a *application) windowControl(control string) {
 	user32 := windows.NewLazySystemDLL("user32.dll")
@@ -532,11 +712,21 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, errors.New("yt-dlp is not installed; use Setup / Update first")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	outputDir := ""
+	if managedOutput := stringValue(payload, "managedVisualBrainOutput", ""); managedOutput != "" {
+		root := filepath.Clean(a.visualBrainMediaDirectory())
+		candidate := filepath.Clean(managedOutput)
+		if !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+			return nil, errors.New("visual Brain output location is invalid")
+		}
+		outputDir = candidate
+	} else {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return nil, homeErr
+		}
+		outputDir = filepath.Join(home, "Downloads")
 	}
-	outputDir := filepath.Join(home, "Downloads")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -597,7 +787,11 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 			return nil, errors.New("operation cancelled")
 		}
 		if runErr == nil {
-			a.emit("Media saved directly to Downloads", numberPointer(100))
+			message := "Media saved directly to Downloads"
+			if stringValue(payload, "managedVisualBrainOutput", "") != "" {
+				message = "Media saved to Visual Brain"
+			}
+			a.emit(message, numberPointer(100))
 			return map[string]any{"message": "Download complete", "folder": outputDir}, nil
 		}
 		if index == 0 && !needsCookieRetry(output) {
@@ -605,6 +799,45 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 		}
 	}
 	return nil, friendlyDownloadError(lastOutput)
+}
+
+func (a *application) visualBrainDownload(payload map[string]any) (map[string]any, error) {
+	directory, err := a.visualBrainItemDirectory(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(a.visualBrainMediaDirectory(), 0o755); err != nil {
+		return nil, err
+	}
+	_ = os.RemoveAll(directory)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return nil, err
+	}
+	payload["managedVisualBrainOutput"] = directory
+	if _, err := a.download(payload); err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, err
+	}
+	destination, err := visualBrainStoredFile(directory)
+	if err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, err
+	}
+	extension := strings.ToLower(filepath.Ext(destination))
+	mime := map[string]string{
+		".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska", ".webm": "video/webm",
+		".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".ogg": "audio/ogg",
+	}[extension]
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	return map[string]any{
+		"message":   "Download complete",
+		"storageID": stringValue(payload, "storageID", ""),
+		"name":      filepath.Base(destination),
+		"title":     strings.TrimSuffix(filepath.Base(destination), filepath.Ext(destination)),
+		"mime":      mime,
+	}, nil
 }
 
 func needsCookieRetry(output string) bool {

@@ -4,11 +4,11 @@
 
 # Ramin Station
 
-A tactile retro desktop media toolkit for downloading media and preparing video files. It wraps FFmpeg and yt-dlp in a focused interface inspired by physical media decks, translucent hardware, and early desktop players.
+A tactile retro desktop media toolkit for downloading media, preparing video files, and collecting creative references in Visual Brain. It wraps FFmpeg and yt-dlp in a focused interface inspired by physical media decks, translucent hardware, and early desktop players.
 
 [Website](https://raminpiri.ir/station) · [Latest release](https://github.com/ramindxb/Ramin-Station/releases/latest) · [Report a bug](https://github.com/ramindxb/Ramin-Station/issues)
 
-> Version 1.0 is an unsigned personal release for macOS and Windows. Read the platform notes before installing.
+> Version 2.0 is an unsigned personal release for macOS and Windows. Read the platform notes before installing.
 
 ## Features
 
@@ -22,6 +22,12 @@ A tactile retro desktop media toolkit for downloading media and preparing video 
 - Show progress and logs inside the built-in retro terminal.
 - Cancel active download and transcode jobs.
 - Use native `Command+V` and `Ctrl+V` clipboard paste.
+- Save Instagram, YouTube, music, image, video, and audio references inside **Visual Brain**.
+- Pin three motivation signals, organize ideas by category, attach notes and searchable client hashtags, drag to reorder, and right-click to remove.
+- Copy newly imported Visual Brain files into the app's managed storage and reveal them in Finder or Explorer.
+- Download saved links in the background with inline progress; completed links become local-file cards.
+- Keep Visual Brain data private on the local computer with persistent native metadata storage.
+- Move the borderless app from the dedicated black drag strip at the top of every screen.
 
 ## Download and install
 
@@ -29,18 +35,18 @@ Download the appropriate package from [GitHub Releases](https://github.com/ramin
 
 ### macOS
 
-1. Download `Ramin-Station-1.0-macOS.dmg`.
+1. Download `Ramin-Station-2.0-macOS.dmg`.
 2. Drag **Ramin Station** into Applications.
-3. Because V1 is not notarized, Control-click the app and choose **Open** on first launch.
+3. Because V2 is not notarized, Control-click the app and choose **Open** on first launch.
 
 The macOS app supports Apple Silicon and Intel and targets macOS 13 or newer.
 
 ### Windows
 
-- Use `Ramin-Station-1.0-Windows-Setup.exe` for a normal per-user installation.
-- Use `Ramin-Station-1.0-Windows-Portable.zip` if you prefer a portable copy.
+- Use `Ramin-Station-2.0-Windows-Setup.exe` for a normal per-user installation.
+- Use `Ramin-Station-2.0-Windows-Portable.zip` if you prefer a portable copy.
 
-Windows SmartScreen may display **Unknown Publisher** because V1 is not code-signed.
+Windows SmartScreen may display **Unknown Publisher** because V2 is not code-signed.
 
 ## YouTube cookies
 
@@ -92,7 +98,9 @@ app/
 ├── index.html           Main tactile deck
 ├── download.html        Download workflow
 ├── compress.html        Compression and edit-ready workflow
+├── visual-brain.html    Local visual-reference and idea library
 ├── tool.js              Shared UI behavior and native bridge
+├── visual-brain.js      Visual Brain storage, drag/drop, notes, and categories
 └── server.js            Local browser prototype
 ```
 
@@ -101,8 +109,8 @@ app/
 Every pushed tag matching `v*` runs the GitHub release workflow. It builds all four packages, generates `SHA256SUMS.txt`, and creates a GitHub Release.
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 ## Responsible use

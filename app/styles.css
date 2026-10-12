@@ -23,12 +23,37 @@ body {
   font-family: "Exo 2", system-ui, sans-serif;
 }
 
+.window-drag-strip {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 1000;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(204,205,210,.42);
+  background: linear-gradient(180deg, rgba(2,3,5,.98), rgba(7,8,11,.93));
+  border-bottom: 1px solid rgba(204,205,210,.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,.34);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  font: 600 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .18em;
+}
+
+.window-drag-strip:active { cursor: grabbing; }
+.window-drag-strip i { width: 42px; height: 2px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(204,205,210,.28) 0 3px, transparent 3px 6px); }
+.window-drag-strip b { font-weight: 500; color: rgba(204,205,210,.25); }
+
 .station {
   position: relative;
   width: min(100vw, calc(100vh * 1.5988));
   aspect-ratio: 1586 / 992;
   user-select: none;
   -webkit-user-select: none;
+  container-type: inline-size;
 }
 
 .station__art {
@@ -39,21 +64,42 @@ body {
   pointer-events: none;
 }
 
+.station__subtitle {
+  position: absolute;
+  top: 12.65%;
+  left: 50%;
+  width: 20%;
+  height: 3.15%;
+  display: grid;
+  place-items: center;
+  transform: translateX(-50%);
+  color: #cccdd2;
+  background: radial-gradient(ellipse, #181b1e 50%, #15181b);
+  border-radius: .4cqw;
+  font-family: "Exo 2", "Avenir Next", system-ui, sans-serif;
+  font-size: 1.16cqw;
+  font-weight: 350;
+  line-height: 1;
+  letter-spacing: .1em;
+  pointer-events: none;
+}
+
 .physical-key {
   position: absolute;
   left: 6.7%;
   width: 88.5%;
   padding: 0;
   border: 0;
-  border-radius: 4.3vw;
+  border-radius: 3.2vw;
   background: transparent;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   outline: none;
 }
 
-.physical-key--download { top: 19.7%; height: 32.4%; }
-.physical-key--compress { top: 54.3%; height: 33.5%; }
+.physical-key--download { top: 19.05%; height: 22.4%; }
+.physical-key--compress { top: 43.35%; height: 21.75%; }
+.physical-key--visual-brain { top: 66.05%; height: 22.25%; }
 
 .physical-key__surface {
   position: absolute;
@@ -72,6 +118,10 @@ body {
 
 .physical-key--compress .physical-key__surface {
   filter: drop-shadow(0 .95vw .55vw rgba(0, 0, 0, .72));
+}
+
+.physical-key--visual-brain .physical-key__surface {
+  filter: drop-shadow(0 .7vw .52vw rgba(0, 0, 0, .64));
 }
 
 .physical-key:hover .physical-key__surface {

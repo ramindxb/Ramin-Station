@@ -1,4 +1,4 @@
-RAMIN STATION 1.0 — WINDOWS
+RAMIN STATION 2.0 — WINDOWS
 
 PORTABLE
 Run "Ramin Station.exe" directly. No installation is required.

@@ -3,10 +3,19 @@ import CryptoKit
 import UniformTypeIdentifiers
 import WebKit
 
+final class WindowDragView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
+
 @main
 final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
+    private var windowDragView: WindowDragView!
     private let fileManager = FileManager.default
     private let processLock = NSLock()
     private var currentProcess: Process?
@@ -18,6 +27,16 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         }
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return applicationSupport.appendingPathComponent("Ramin Station/bin", isDirectory: true)
+    }()
+
+    private lazy var visualBrainStateURL: URL = {
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return applicationSupport.appendingPathComponent("Ramin Station/visual-brain.json", isDirectory: false)
+    }()
+
+    private lazy var visualBrainMediaDirectory: URL = {
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return applicationSupport.appendingPathComponent("Ramin Station/Visual Brain Files", isDirectory: true)
     }()
 
     static func main() {
@@ -35,7 +54,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
 
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = .default()
         configuration.mediaTypesRequiringUserActionForPlayback = []
 
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -55,7 +74,16 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         window.backgroundColor = .black
         window.minSize = NSSize(width: 960, height: 601)
         window.aspectRatio = NSSize(width: 1586, height: 992)
-        window.contentView = webView
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1269, height: 794))
+        webView.frame = contentView.bounds
+        webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(webView)
+        windowDragView = WindowDragView(frame: NSRect(x: 0, y: contentView.bounds.height - 24, width: contentView.bounds.width, height: 24))
+        windowDragView.autoresizingMask = [.width, .minYMargin]
+        windowDragView.wantsLayer = true
+        windowDragView.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView.addSubview(windowDragView, positioned: .above, relativeTo: webView)
+        window.contentView = contentView
         window.center()
         window.makeKeyAndOrderFront(nil)
         window.standardWindowButton(.closeButton)?.isHidden = true
@@ -117,6 +145,18 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             respond(requestID, ["ok": true])
             return
         }
+        if action == "visualBrainLoad" {
+            loadVisualBrain(requestID: requestID)
+            return
+        }
+        if action == "visualBrainSave" {
+            saveVisualBrain(requestID: requestID, state: payload["state"])
+            return
+        }
+        if action.hasPrefix("visualBrainImport") || action == "visualBrainRevealFile" || action == "visualBrainDeleteFile" {
+            handleVisualBrainFileAction(requestID: requestID, action: action, payload: payload)
+            return
+        }
         if action == "cancel" {
             cancelCurrentJob()
             respond(requestID, ["message": "Cancelled"])
@@ -131,6 +171,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
                 case "dependencies": result = self.dependencies(payload["tools"] as? [String])
                 case "install": result = try self.installTools(payload)
                 case "download": result = try self.download(payload)
+                case "visualBrainDownload": result = try self.visualBrainDownload(payload)
                 case "compress": result = try self.compress(payload)
                 default: throw StationError("Unknown action.")
                 }
@@ -197,7 +238,107 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         case "close": window.performClose(nil)
         case "minimize": window.miniaturize(nil)
         case "zoom": window.toggleFullScreen(nil)
+        case "drag":
+            if let event = NSApp.currentEvent { window.performDrag(with: event) }
         default: break
+        }
+    }
+
+    private func loadVisualBrain(requestID: Int) {
+        do {
+            guard fileManager.fileExists(atPath: visualBrainStateURL.path) else {
+                respond(requestID, ["state": ["version": 1, "items": []]])
+                return
+            }
+            let data = try Data(contentsOf: visualBrainStateURL)
+            let object = try JSONSerialization.jsonObject(with: data)
+            respond(requestID, ["state": object])
+        } catch {
+            respond(requestID, ["error": "Could not load Visual Brain: \(error.localizedDescription)"])
+        }
+    }
+
+    private func saveVisualBrain(requestID: Int, state: Any?) {
+        do {
+            guard let state, JSONSerialization.isValidJSONObject(state) else {
+                throw StationError("Visual Brain data is invalid.")
+            }
+            try fileManager.createDirectory(at: visualBrainStateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: visualBrainStateURL, options: .atomic)
+            respond(requestID, ["ok": true])
+        } catch {
+            respond(requestID, ["error": "Could not save Visual Brain: \(error.localizedDescription)"])
+        }
+    }
+
+    private func visualBrainItemDirectory(_ rawID: Any?) throws -> URL {
+        guard let storageID = rawID as? String, UUID(uuidString: storageID) != nil else {
+            throw StationError("Visual Brain file ID is invalid.")
+        }
+        let root = visualBrainMediaDirectory.standardizedFileURL
+        let directory = root.appendingPathComponent(storageID, isDirectory: true).standardizedFileURL
+        guard directory.path.hasPrefix(root.path + "/") else {
+            throw StationError("Visual Brain file location is invalid.")
+        }
+        return directory
+    }
+
+    private func visualBrainStoredFile(in directory: URL) throws -> URL {
+        let files = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        guard let file = files.first(where: {
+            !$0.hasDirectoryPath && !$0.lastPathComponent.hasSuffix(".part") && !$0.lastPathComponent.hasSuffix(".ytdl")
+        }) else {
+            throw StationError("The managed Visual Brain file is missing.")
+        }
+        return file
+    }
+
+    private func safeVisualBrainFilename(_ rawName: String) -> String {
+        let lastComponent = URL(fileURLWithPath: rawName).lastPathComponent
+        let sanitized = lastComponent.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: "/", with: "_")
+        return sanitized.isEmpty || sanitized == "." ? "Untitled Media" : String(sanitized.prefix(180))
+    }
+
+    private func handleVisualBrainFileAction(requestID: Int, action: String, payload: [String: Any]) {
+        do {
+            let directory = try visualBrainItemDirectory(payload["storageID"])
+            switch action {
+            case "visualBrainImportStart":
+                try fileManager.createDirectory(at: visualBrainMediaDirectory, withIntermediateDirectories: true)
+                if fileManager.fileExists(atPath: directory.path) { try fileManager.removeItem(at: directory) }
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                let filename = safeVisualBrainFilename(payload["name"] as? String ?? "Untitled Media")
+                let destination = directory.appendingPathComponent(filename, isDirectory: false)
+                guard fileManager.createFile(atPath: destination.path, contents: Data()) else {
+                    throw StationError("Could not create the managed media copy.")
+                }
+                respond(requestID, ["ok": true, "storageID": payload["storageID"] as? String ?? ""])
+            case "visualBrainImportChunk":
+                guard let encoded = payload["data"] as? String, let data = Data(base64Encoded: encoded) else {
+                    throw StationError("The media copy chunk is invalid.")
+                }
+                let destination = try visualBrainStoredFile(in: directory)
+                let handle = try FileHandle(forWritingTo: destination)
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try handle.close()
+                respond(requestID, ["ok": true])
+            case "visualBrainImportFinish":
+                let destination = try visualBrainStoredFile(in: directory)
+                respond(requestID, ["ok": true, "name": destination.lastPathComponent])
+            case "visualBrainImportAbort", "visualBrainDeleteFile":
+                if fileManager.fileExists(atPath: directory.path) { try fileManager.removeItem(at: directory) }
+                respond(requestID, ["ok": true])
+            case "visualBrainRevealFile":
+                let destination = try visualBrainStoredFile(in: directory)
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+                respond(requestID, ["ok": true])
+            default:
+                throw StationError("Unknown Visual Brain file action.")
+            }
+        } catch {
+            respond(requestID, ["error": error.localizedDescription])
         }
     }
 
@@ -372,7 +513,12 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         }
         guard let ytdlp = findExecutable("yt-dlp") else { throw StationError("yt-dlp is not installed. Use Setup / Update first.") }
         let outputFolder: URL
-        if let override = ProcessInfo.processInfo.environment["RAMIN_STATION_DOWNLOADS"], !override.isEmpty {
+        if let managedOutput = payload["managedVisualBrainOutput"] as? String, !managedOutput.isEmpty {
+            let root = visualBrainMediaDirectory.standardizedFileURL
+            let candidate = URL(fileURLWithPath: managedOutput, isDirectory: true).standardizedFileURL
+            guard candidate.path.hasPrefix(root.path + "/") else { throw StationError("Visual Brain output location is invalid.") }
+            outputFolder = candidate
+        } else if let override = ProcessInfo.processInfo.environment["RAMIN_STATION_DOWNLOADS"], !override.isEmpty {
             outputFolder = URL(fileURLWithPath: override, isDirectory: true)
         } else {
             outputFolder = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
@@ -418,12 +564,36 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             lastOutput = result.output
             if wasCancelled() { throw StationError("Operation cancelled.") }
             if result.status == 0 {
-                emitEvent(message: "Media saved directly to Downloads", progress: 100)
+                emitEvent(message: payload["managedVisualBrainOutput"] == nil ? "Media saved directly to Downloads" : "Media saved to Visual Brain", progress: 100)
                 return ["message": "Download complete", "folder": outputFolder.path]
             }
             if index == 0 && !needsCookieRetry(result.output) { break }
         }
         throw StationError(friendlyDownloadError(lastOutput))
+    }
+
+    private func visualBrainDownload(_ payload: [String: Any]) throws -> [String: Any] {
+        let directory = try visualBrainItemDirectory(payload["storageID"])
+        try fileManager.createDirectory(at: visualBrainMediaDirectory, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: directory.path) { try fileManager.removeItem(at: directory) }
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            var downloadPayload = payload
+            downloadPayload["managedVisualBrainOutput"] = directory.path
+            _ = try download(downloadPayload)
+            let destination = try visualBrainStoredFile(in: directory)
+            let mime = UTType(filenameExtension: destination.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            return [
+                "message": "Download complete",
+                "storageID": payload["storageID"] as? String ?? "",
+                "name": destination.lastPathComponent,
+                "title": destination.deletingPathExtension().lastPathComponent,
+                "mime": mime
+            ]
+        } catch {
+            try? fileManager.removeItem(at: directory)
+            throw error
+        }
     }
 
     private func needsCookieRetry(_ output: String) -> Bool {

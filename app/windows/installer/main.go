@@ -17,7 +17,7 @@ var payload embed.FS
 
 const (
 	appName = "Ramin Station"
-	version = "1.0"
+	version = "2.0"
 	idYes   = 6
 )
 
@@ -30,7 +30,7 @@ func main() {
 }
 
 func install() {
-	answer := messageBox("Install Ramin Station 1.0 for this Windows user?", "Ramin Station Setup", windows.MB_YESNO|windows.MB_ICONQUESTION)
+	answer := messageBox(fmt.Sprintf("Install %s %s for this Windows user?", appName, version), "Ramin Station Setup", windows.MB_YESNO|windows.MB_ICONQUESTION)
 	if answer != idYes {
 		return
 	}
@@ -110,7 +110,7 @@ func install() {
 	}
 
 	_ = exec.Command(appPath).Start()
-	messageBox("Ramin Station 1.0 is installed and ready.", "Ramin Station Setup", windows.MB_OK|windows.MB_ICONINFORMATION)
+	messageBox(fmt.Sprintf("%s %s is installed and ready.", appName, version), "Ramin Station Setup", windows.MB_OK|windows.MB_ICONINFORMATION)
 }
 
 func uninstall() {

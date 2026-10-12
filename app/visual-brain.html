@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ramin Station — Visual Brain</title>
+  <link rel="stylesheet" href="visual-brain.css" />
+</head>
+<body>
+  <div class="window-drag-strip" data-window-drag aria-label="Drag window">
+    <span>RAMIN STATION</span><i></i><b>DRAG TO MOVE</b>
+  </div>
+
+  <main class="brain-shell" aria-label="Visual Brain idea library">
+    <header class="brain-header">
+      <a class="back-key" href="index.html">‹ MAIN MENU</a>
+      <div class="brand">
+        <div class="brand__name">RAMIN STATION</div>
+        <div class="brand__path">VISUAL BRAIN</div>
+        <a class="brand-logo" href="https://raminpiri.ir/station" aria-label="Support Ramin Station"><i></i><i></i><span>SUPPORT ♥</span></a>
+      </div>
+      <div class="window-lights" aria-label="Window controls">
+        <button type="button" data-window="zoom" aria-label="Full screen"></button>
+        <button type="button" data-window="minimize" aria-label="Minimize"></button>
+        <button type="button" data-window="close" aria-label="Close"></button>
+      </div>
+    </header>
+
+    <section class="motivation-deck drop-zone" data-drop-category="motivation" aria-label="Motivation videos">
+      <div class="section-heading">
+        <div><span>01 / PINNED SIGNAL</span><h2>MOTIVATION</h2></div>
+        <p>YOUR THREE GO-TO VIDEOS</p>
+      </div>
+      <div class="motivation-grid" data-motivation-grid></div>
+    </section>
+
+    <section class="library-deck drop-zone" data-drop-category="active" aria-label="Saved ideas">
+      <div class="library-toolbar">
+        <div class="section-heading section-heading--compact">
+          <div><span>02 / IDEA ARCHIVE</span><h2>LIBRARY</h2></div>
+        </div>
+        <nav class="category-tabs" aria-label="Idea categories" data-category-tabs>
+          <button class="is-active" type="button" data-category="all">ALL</button>
+          <button type="button" data-category="instagram">INSTAGRAM</button>
+          <button type="button" data-category="youtube">YOUTUBE</button>
+          <button type="button" data-category="music">MUSIC</button>
+          <button type="button" data-category="saved">OTHER</button>
+        </nav>
+        <label class="search-box"><span>⌕</span><input type="search" data-search placeholder="SEARCH MEMORY" autocomplete="off" /></label>
+        <div class="library-actions">
+          <button class="deck-key deck-key--primary" type="button" data-add-files>+ ADD FILES</button>
+          <button class="deck-key" type="button" data-add-link>+ ADD LINK</button>
+          <input type="file" data-file-input accept="video/*,audio/*,image/*" multiple hidden />
+        </div>
+      </div>
+      <div class="idea-grid" data-idea-grid></div>
+      <div class="empty-library" data-empty-library>
+        <b>DROP YOUR FIRST IDEA HERE</b>
+        <span>VIDEO • IMAGE • AUDIO • URL</span>
+      </div>
+    </section>
+
+    <section class="brain-intro">
+      <div>
+        <span class="eyebrow"><i></i> MEMORY DECK ONLINE</span>
+        <h1>Keep the spark. <em>Find it when you need it.</em></h1>
+      </div>
+      <p>Drop references, clips, music, or links. Add a note and client hashtags so future-you remembers why it mattered.</p>
+    </section>
+
+    <footer class="brain-readout">
+      <span>LOCAL MEMORY • PRIVATE BY DEFAULT</span>
+      <span class="brain-readout__status" data-brain-status>READY</span>
+      <span>RIGHT-CLICK A CARD TO REMOVE</span>
+    </footer>
+  </main>
+
+  <dialog class="link-dialog" data-link-dialog>
+    <form method="dialog" data-link-form>
+      <header><span>NEW SIGNAL</span><button type="button" data-close-dialog aria-label="Close">×</button></header>
+      <label>PASTE A LINK<input type="url" data-link-url placeholder="https://youtube.com/..." required /></label>
+      <label>TITLE — OPTIONAL<input type="text" data-link-title placeholder="The hook / visual / track" /></label>
+      <label>WHY ARE YOU SAVING THIS?<textarea data-link-note placeholder="One short reminder for later…"></textarea></label>
+      <label>CLIENT HASHTAGS — OPTIONAL<input type="text" data-link-hashtags placeholder="#client-name #campaign" /></label>
+      <label>CATEGORY<select data-link-category>
+        <option value="instagram">INSTAGRAM</option>
+        <option value="youtube">YOUTUBE</option>
+        <option value="music">MUSIC</option>
+        <option value="saved">OTHER</option>
+        <option value="motivation">MOTIVATION</option>
+      </select></label>
+      <div class="dialog-actions"><button type="button" data-close-dialog>CANCEL</button><button class="is-primary" type="submit">SAVE SIGNAL</button></div>
+    </form>
+  </dialog>
+
+  <menu class="card-menu" data-card-menu>
+    <button type="button" data-menu-action="reveal">REVEAL IN FINDER</button>
+    <hr data-reveal-divider />
+    <button type="button" data-menu-action="motivation">PIN TO MOTIVATION</button>
+    <button type="button" data-menu-action="instagram">MOVE TO INSTAGRAM</button>
+    <button type="button" data-menu-action="youtube">MOVE TO YOUTUBE</button>
+    <button type="button" data-menu-action="music">MOVE TO MUSIC</button>
+    <button type="button" data-menu-action="saved">MOVE TO OTHER</button>
+    <hr />
+    <button class="is-danger" type="button" data-menu-action="delete">DELETE SIGNAL</button>
+  </menu>
+
+  <div class="drop-overlay" data-drop-overlay><span>DROP TO SAVE SIGNAL</span><small>THE ACTIVE CATEGORY WILL BE USED</small></div>
+  <div class="toast" role="status" aria-live="polite" data-toast></div>
+  <script src="visual-brain.js"></script>
+</body>
+</html>

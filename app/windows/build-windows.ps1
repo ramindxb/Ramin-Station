@@ -6,8 +6,8 @@ $WindowsSource = Join-Path $AppSource "windows"
 $WebTarget = Join-Path $WindowsSource "web"
 $DistDir = Join-Path $RootDir "dist"
 $AppExe = Join-Path $DistDir "Ramin Station.exe"
-$SetupExe = Join-Path $DistDir "Ramin-Station-1.0-Windows-Setup.exe"
-$PortableZip = Join-Path $DistDir "Ramin-Station-1.0-Windows-Portable.zip"
+$SetupExe = Join-Path $DistDir "Ramin-Station-2.0-Windows-Setup.exe"
+$PortableZip = Join-Path $DistDir "Ramin-Station-2.0-Windows-Portable.zip"
 $InstallerPayload = Join-Path $WindowsSource "installer/payload"
 
 New-Item -ItemType Directory -Force -Path (Join-Path $WebTarget "assets"), $DistDir, (Join-Path $InstallerPayload "licenses") | Out-Null

@@ -28,6 +28,30 @@ body {
 
 button, input, select { font: inherit; }
 
+.window-drag-strip {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 1000;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(204,205,210,.42);
+  background: linear-gradient(180deg, rgba(2,3,5,.98), rgba(7,8,11,.93));
+  border-bottom: 1px solid rgba(204,205,210,.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,.34);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  font: 600 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .18em;
+}
+
+.window-drag-strip:active { cursor: grabbing; }
+.window-drag-strip i { width: 42px; height: 2px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(204,205,210,.28) 0 3px, transparent 3px 6px); }
+.window-drag-strip b { font-weight: 500; color: rgba(204,205,210,.25); }
+
 .tool-shell {
   position: relative;
   width: min(100vw, calc(100vh * 1.5988));

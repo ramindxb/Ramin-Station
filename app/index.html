@@ -7,14 +7,22 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="station" aria-label="Ramin Station media toolkit">
-    <img class="station__art" src="assets/base-ui.png" alt="Ramin Station media toolkit" draggable="false" />
+  <div class="window-drag-strip" data-window-drag aria-label="Drag window">
+    <span>RAMIN STATION</span><i></i><b>DRAG TO MOVE</b>
+  </div>
+  <main class="station" aria-label="Ramin Station media toolkit v2">
+    <img class="station__art" src="assets/base-ui.png" alt="Ramin Station media toolkit v2" draggable="false" />
+    <div class="station__subtitle">MEDIA TOOLKIT V2</div>
 
     <button class="physical-key physical-key--download is-selected" data-action="download" aria-label="Download">
       <span class="physical-key__surface" aria-hidden="true"></span>
     </button>
 
     <button class="physical-key physical-key--compress" data-action="compress" aria-label="Compress">
+      <span class="physical-key__surface" aria-hidden="true"></span>
+    </button>
+
+    <button class="physical-key physical-key--visual-brain" data-action="visual-brain" aria-label="Visual Brain">
       <span class="physical-key__surface" aria-hidden="true"></span>
     </button>
 
