@@ -17,6 +17,13 @@ const nativeRequests = new Map();
 let jobRunning = false;
 let selectedSourceKind = 'folder';
 let cookieFilePath = '';
+const playableOption = document.querySelector('[data-auto-playable]');
+if (playableOption) {
+  try { playableOption.checked = localStorage.getItem('ramin-station.auto-playable') !== 'off'; } catch {}
+  playableOption.addEventListener('change', () => {
+    try { localStorage.setItem('ramin-station.auto-playable', playableOption.checked ? 'on' : 'off'); } catch {}
+  });
+}
 
 window.raminNativeResolve = (id, result) => {
   const request = nativeRequests.get(id);
@@ -254,19 +261,40 @@ runKey.addEventListener('click', async () => {
   setStatus(tool === 'download' ? 'download started' : editReady ? 'edit transcode started' : 'compression started');
   try {
     const payload = tool === 'download'
-      ? {url: input.value.trim(), mediaType: selections.mediaType, quality: selections.quality, cookies: cookieSource?.value || 'auto', cookieFile: cookieFilePath}
+      ? {url: input.value.trim(), mediaType: selections.mediaType, quality: selections.quality, cookies: cookieSource?.value || 'auto', cookieFile: cookieFilePath, autoPlayable: playableOption?.checked !== false}
       : {source: input.value.trim(), sourceKind: selectedSourceKind, inputType: selections.inputType, quality: selections.quality, processMode: selections.processMode || 'compress'};
     let data;
     if (nativeBridge) {
       data = await nativeRequest(tool, payload);
     } else {
       const response = await fetch(`/api/${tool}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-      data = await response.json();
+      if (response.headers.get('Content-Type')?.includes('application/x-ndjson')) {
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        let pending = '';
+        const consume = line => {
+          if (!line.trim()) return;
+          const event = JSON.parse(line);
+          if (event.error) throw new Error(event.error);
+          if (event.message) appendLog(event.message);
+          if (Number.isFinite(event.progress)) setProgress(event.progress);
+          if (event.complete) data = event.complete;
+        };
+        while (true) {
+          const {value,done} = await reader.read();
+          pending += decoder.decode(value || new Uint8Array(),{stream:!done});
+          const lines = pending.split('\n'); pending = lines.pop() || ''; lines.forEach(consume);
+          if (done) break;
+        }
+        if (pending) consume(pending);
+        if (!data) throw new Error('The job ended without a saved file.');
+      } else data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Job failed.');
     }
     setStatus(data.message || 'complete');
     setProgress(100);
     appendLog(data.message || 'Job complete.');
+    if (data.warning) appendLog(data.warning);
+    if (data.name) appendLog(`File: ${data.name}`);
   } catch (error) {
     const message = error?.message || 'Job stopped.';
     setStatus(message.length > 72 ? 'job failed — see terminal' : message);
@@ -283,7 +311,7 @@ cancelKey.addEventListener('click', async () => {
   appendLog('Cancel requested…');
   try {
     if (nativeBridge) await nativeRequest('cancel');
-    else await fetch('/api/cancel', {method:'POST'});
+    else await fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     setStatus('cancelled');
   } catch (error) {
     setStatus(error?.message || 'cancel failed');

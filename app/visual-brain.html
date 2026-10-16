@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ramin Station — Visual Brain</title>
   <link rel="stylesheet" href="visual-brain.css" />
+  <link rel="stylesheet" href="updates.css" />
 </head>
 <body>
   <div class="window-drag-strip" data-window-drag aria-label="Drag window">
@@ -29,7 +30,7 @@
     <section class="motivation-deck drop-zone" data-drop-category="motivation" aria-label="Motivation videos">
       <div class="section-heading">
         <div><span>01 / PINNED SIGNAL</span><h2>MOTIVATION</h2></div>
-        <p>YOUR THREE GO-TO VIDEOS</p>
+        <p>YOUR FIVE GO-TO VIDEOS</p>
       </div>
       <div class="motivation-grid" data-motivation-grid></div>
     </section>
@@ -53,6 +54,10 @@
           <input type="file" data-file-input accept="video/*,audio/*,image/*" multiple hidden />
         </div>
       </div>
+      <div class="playback-rail">
+        <label title="Lossless remux when possible; otherwise a high-quality playable copy. Never overwrites the original."><input type="checkbox" data-auto-playable checked /> AUTO PLAYABLE COPY</label>
+        <span>AFTER DOWNLOAD • ORIGINAL ALWAYS KEPT</span>
+      </div>
       <div class="idea-grid" data-idea-grid></div>
       <div class="empty-library" data-empty-library>
         <b>DROP YOUR FIRST IDEA HERE</b>
@@ -75,6 +80,14 @@
     </footer>
   </main>
 
+  <dialog class="media-viewer" data-media-viewer aria-labelledby="media-viewer-title">
+    <header>
+      <h2 id="media-viewer-title" data-media-viewer-title>Media preview</h2>
+      <button type="button" data-close-media-viewer aria-label="Exit full screen">✕ CLOSE · ESC</button>
+    </header>
+    <div class="media-viewer__content" data-media-viewer-content></div>
+  </dialog>
+
   <dialog class="link-dialog" data-link-dialog>
     <form method="dialog" data-link-form>
       <header><span>NEW SIGNAL</span><button type="button" data-close-dialog aria-label="Close">×</button></header>
@@ -95,6 +108,7 @@
 
   <menu class="card-menu" data-card-menu>
     <button type="button" data-menu-action="reveal">REVEAL IN FINDER</button>
+    <button type="button" data-menu-action="playable">MAKE PLAYABLE COPY</button>
     <hr data-reveal-divider />
     <button type="button" data-menu-action="motivation">PIN TO MOTIVATION</button>
     <button type="button" data-menu-action="instagram">MOVE TO INSTAGRAM</button>
@@ -108,5 +122,6 @@
   <div class="drop-overlay" data-drop-overlay><span>DROP TO SAVE SIGNAL</span><small>THE ACTIVE CATEGORY WILL BE USED</small></div>
   <div class="toast" role="status" aria-live="polite" data-toast></div>
   <script src="visual-brain.js"></script>
+  <script src="updates.js"></script>
 </body>
 </html>

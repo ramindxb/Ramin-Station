@@ -7,7 +7,7 @@ const STORAGE_KEY = 'ramin-station.visual-brain.v1';
 const DB_NAME = 'ramin-station-visual-brain';
 const DB_STORE = 'media';
 const categories = new Set(['motivation', 'instagram', 'youtube', 'music', 'saved']);
-const motivationLimit = 3;
+const motivationLimit = 5;
 
 const state = {version: 2, items: []};
 let activeCategory = 'all';
@@ -32,6 +32,14 @@ const linkDialog = document.querySelector('[data-link-dialog]');
 const linkForm = document.querySelector('[data-link-form]');
 const cardMenu = document.querySelector('[data-card-menu]');
 const dropOverlay = document.querySelector('[data-drop-overlay]');
+const playableOption = document.querySelector('[data-auto-playable]');
+const mediaViewer = document.querySelector('[data-media-viewer]');
+const mediaViewerContent = document.querySelector('[data-media-viewer-content]');
+let expandedMedia = null;
+try { playableOption.checked = localStorage.getItem('ramin-station.auto-playable') !== 'off'; } catch {}
+playableOption.addEventListener('change', () => {
+  try { localStorage.setItem('ramin-station.auto-playable', playableOption.checked ? 'on' : 'off'); } catch {}
+});
 
 window.raminNativeResolve = (id, result) => {
   const request = nativeRequests.get(id);
@@ -43,7 +51,7 @@ window.raminNativeResolve = (id, result) => {
 window.raminNativeEvent = event => {
   if (!activeVisualDownloadID) return;
   const progress = Number.isFinite(event?.progress) ? event.progress : null;
-  updateDownloadProgress(activeVisualDownloadID, progress, event?.message || 'Downloading');
+  updateDownloadProgress(activeVisualDownloadID, progress, event?.message || 'Processing');
 };
 
 function nativeRequest(action, payload = {}) {
@@ -91,6 +99,9 @@ function cleanState() {
       hashtags: item.hashtags || '',
       mime: item.mime || '',
       name: item.name || '',
+      originalName: item.originalName || '',
+      compatibility: item.compatibility || '',
+      playbackWarning: item.playbackWarning || '',
       blobId: item.blobId || '',
       storageID: item.storageID || '',
       createdAt: item.createdAt || new Date().toISOString()
@@ -98,7 +109,7 @@ function cleanState() {
   };
 }
 
-async function persistNow() {
+async function persistNow(throwOnFailure = false) {
   const payload = cleanState();
   try {
     if (nativeBridge) {
@@ -110,8 +121,11 @@ async function persistNow() {
   } catch (error) {
     setStatus('save failed');
     showToast(error?.message || 'Could not save Visual Brain.');
+    if (throwOnFailure) throw error;
   }
 }
+
+window.stationSaveBeforeUpdate = () => persistNow(true);
 
 function scheduleSave() {
   clearTimeout(saveTimer);
@@ -131,6 +145,9 @@ function normalizeState(saved) {
     hashtags: normalizeHashtags(item.hashtags || ''),
     mime: String(item.mime || ''),
     name: String(item.name || ''),
+    originalName: String(item.originalName || ''),
+    compatibility: String(item.compatibility || ''),
+    playbackWarning: String(item.playbackWarning || ''),
     blobId: String(item.blobId || ''),
     storageID: String(item.storageID || ''),
     createdAt: String(item.createdAt || new Date().toISOString())
@@ -184,7 +201,7 @@ function revealManagedFile(item) {
     showToast('This file has no managed Finder copy yet.');
     return;
   }
-  nativeRequest('visualBrainRevealFile', {storageID: item.storageID})
+  nativeRequest('visualBrainRevealFile', {storageID: item.storageID, name: item.name})
     .then(() => showToast('File revealed.'))
     .catch(error => showToast(error?.message || 'Could not reveal this file.'));
 }
@@ -193,8 +210,13 @@ function updateDownloadProgress(itemID, value, message = '') {
   const card = document.querySelector(`[data-item-id="${CSS.escape(itemID)}"]`);
   if (!card) return;
   const control = card.querySelector('[data-card-download]');
-  if (!control) return;
   const progress = Math.max(0, Math.min(100, Number(value) || 0));
+  if (!control) {
+    const media = card.querySelector('.idea-card__media');
+    if (media) media.dataset.playback = `PREPARING PLAYBACK ${Math.round(progress)}%`;
+    setStatus(message || 'preparing playback');
+    return;
+  }
   control.classList.add('is-running');
   control.querySelector('[data-card-download-bar]').style.width = `${progress}%`;
   control.querySelector('[data-card-download-percent]').textContent = `${Math.round(progress)}%`;
@@ -254,7 +276,8 @@ async function downloadLinkItem(item) {
       storageID,
       mediaType: item.category === 'music' ? 'audio' : 'video',
       quality: item.category === 'music' ? 'best' : '1080',
-      cookies: 'auto'
+      cookies: 'auto',
+      autoPlayable: playableOption.checked
     };
     const result = nativeBridge
       ? await nativeRequest('visualBrainDownload', payload)
@@ -264,11 +287,14 @@ async function downloadLinkItem(item) {
     item.mime = result.mime || (item.category === 'music' ? 'audio/mpeg' : 'video/mp4');
     item.storageID = result.storageID || storageID;
     item.blobId = '';
+    item.originalName = result.originalName || item.name;
+    item.compatibility = result.compatibility || '';
+    item.playbackWarning = result.warning || '';
     item.sourceUrl = item.url;
     render();
     await persistNow();
     setStatus('download saved to library');
-    showToast('Download complete — the link is now a local file.');
+    showToast(result.warning || 'Download complete — the link is now a local file.');
   } catch (error) {
     const card = document.querySelector(`[data-item-id="${CSS.escape(item.id)}"]`);
     const control = card?.querySelector('[data-card-download]');
@@ -378,12 +404,21 @@ function revokeRenderedURLs() {
 }
 
 async function hydrateMedia(container, item) {
-  if (item.type !== 'file' || !item.blobId) return;
+  if (item.type !== 'file') return;
   try {
-    const blob = await getMedia(item.blobId);
-    if (!blob || !container.isConnected) return;
-    const url = URL.createObjectURL(blob);
-    renderedObjectURLs.push(url);
+    container.title = item.playbackWarning || (item.originalName && item.originalName !== item.name ? `Playable copy • Original kept: ${item.originalName}` : '');
+    let url;
+    if (item.storageID) {
+      url = nativeBridge
+        ? (await nativeRequest('visualBrainMediaURL', {storageID: item.storageID, name: item.name})).url
+        : `/api/visual-brain-media/${encodeURIComponent(item.storageID)}/${encodeURIComponent(item.name)}`;
+    } else {
+      const blob = await getMedia(item.blobId);
+      if (!blob || !container.isConnected) return;
+      url = URL.createObjectURL(blob);
+      renderedObjectURLs.push(url);
+    }
+    if (!container.isConnected) return;
     container.replaceChildren();
     if (item.mime.startsWith('image/')) {
       const image = document.createElement('img');
@@ -393,7 +428,9 @@ async function hydrateMedia(container, item) {
     } else if (item.mime.startsWith('video/')) {
       const video = document.createElement('video');
       video.src = url;
-      video.muted = true;
+      video.muted = false;
+      // Square pinned tiles use explicit play/expand keys, not oversized native chrome.
+      video.controls = item.category !== 'motivation';
       video.playsInline = true;
       video.preload = 'metadata';
       container.append(video);
@@ -406,6 +443,89 @@ async function hydrateMedia(container, item) {
     }
   } catch {
     container.title = 'The original local media is unavailable.';
+  }
+}
+
+function restoreExpandedMedia() {
+  if (!expandedMedia) return;
+  const {node, origin, controls, trigger} = expandedMedia;
+  expandedMedia = null;
+  if (origin.isConnected) {
+    const wasPlaying = 'paused' in node && !node.paused;
+    origin.append(node);
+    if ('controls' in node) node.controls = controls;
+    if (wasPlaying) node.play().catch(() => {});
+  } else {
+    node.pause?.();
+    node.remove();
+  }
+  if (trigger.isConnected) trigger.focus({preventScroll: true});
+}
+
+function closeMediaViewer() {
+  if (document.fullscreenElement === mediaViewer) document.exitFullscreen?.().catch(() => {});
+  if (mediaViewer.open) mediaViewer.close();
+  restoreExpandedMedia();
+}
+
+async function expandMedia(media, item, trigger) {
+  await media._ready;
+  const node = media.querySelector('video, audio, img');
+  if (!node) { showToast('The local preview is not ready yet.'); return; }
+  closeMediaViewer();
+  expandedMedia = {node, origin: media, controls: node.controls, trigger};
+  document.querySelector('[data-media-viewer-title]').textContent = item.title || 'Media preview';
+  const wasPlaying = 'paused' in node && !node.paused;
+  mediaViewerContent.replaceChildren(node);
+  if ('controls' in node) node.controls = true;
+  if (wasPlaying) node.play().catch(() => {});
+  mediaViewer.showModal();
+  // WKWebView versions without Fullscreen API still get a full-window, contained player.
+  try { await mediaViewer.requestFullscreen?.(); } catch {}
+}
+
+document.querySelector('[data-close-media-viewer]').addEventListener('click', closeMediaViewer);
+mediaViewer.addEventListener('cancel', event => { event.preventDefault(); closeMediaViewer(); });
+mediaViewer.addEventListener('close', () => {
+  // A queued close event from the previous view must not restore a newly opened one.
+  if (!mediaViewer.open) restoreExpandedMedia();
+});
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && mediaViewer.open) closeMediaViewer();
+});
+
+// Existing library downloads can be repaired too, without re-downloading the URL.
+async function makePlayable(item, container) {
+  if (activeVisualDownloadID) { showToast('Finish the current media job first.'); return false; }
+  if (!item.storageID) { showToast('Add this file to the app folder first.'); return false; }
+  activeVisualDownloadID = item.id;
+  updateDownloadProgress(item.id, 90, 'Checking playback');
+  try {
+    const payload = {storageID: item.storageID, name: item.name};
+    let result;
+    if (nativeBridge) result = await nativeRequest('visualBrainMakePlayable', payload);
+    else {
+      const response = await fetch('/api/visual-brain-playable', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Playback check failed.');
+    }
+    item.originalName = item.originalName || result.originalName || item.name;
+    item.name = result.name || item.name;
+    item.compatibility = result.compatibility || '';
+    item.playbackWarning = result.warning || '';
+    if (item.name.endsWith('.mp4')) item.mime = 'video/mp4';
+    else if (item.name.endsWith('.m4a')) item.mime = 'audio/mp4';
+    await persistNow();
+    if (container?.isConnected) await hydrateMedia(container, item);
+    else render();
+    showToast(result.warning || 'Ready to play. Original kept.');
+    return !result.warning;
+  } catch (error) {
+    showToast(error.message || 'Could not create a playable copy. Original kept.');
+    return false;
+  } finally {
+    activeVisualDownloadID = '';
+    if (container) delete container.dataset.playback;
   }
 }
 
@@ -444,7 +564,14 @@ function createCard(item) {
   reveal.setAttribute('aria-label', 'Reveal file in Finder');
   reveal.hidden = item.type !== 'file' || !item.storageID || !nativeBridge;
   reveal.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M8 14h8m-3-3 3 3-3 3"/></svg>';
-  tools.append(open, reveal);
+  const fullscreen = document.createElement('button');
+  fullscreen.className = 'idea-card__fullscreen';
+  fullscreen.type = 'button';
+  fullscreen.title = 'Full screen preview';
+  fullscreen.setAttribute('aria-label', `Full screen preview: ${item.title}`);
+  fullscreen.hidden = item.type !== 'file' || !/^(video|audio|image)\//.test(item.mime);
+  fullscreen.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>';
+  tools.append(open, fullscreen, reveal);
   meta.append(tag, tools);
 
   const title = document.createElement('input');
@@ -507,9 +634,14 @@ function createCard(item) {
     item.hashtags = hashtags.value.slice(0, 240);
     scheduleSave();
   });
-  [title, note, hashtags, open, reveal, downloadControl?.querySelector('button')].filter(Boolean).forEach(node => {
+  [title, note, hashtags, open, fullscreen, reveal, downloadControl?.querySelector('button')].filter(Boolean).forEach(node => {
     node.addEventListener('mousedown', event => event.stopPropagation());
     node.addEventListener('dragstart', event => event.preventDefault());
+  });
+  fullscreen.addEventListener('click', event => {
+    event.stopPropagation();
+    clickSound();
+    expandMedia(media, item, fullscreen).catch(() => showToast('Could not open the media preview.'));
   });
 
   open.addEventListener('click', async event => {
@@ -520,9 +652,18 @@ function createCard(item) {
       else window.open(item.url, '_blank', 'noopener');
       return;
     }
-    const mediaNode = media.querySelector('video, audio');
+    await media._ready;
+    let mediaNode = media.querySelector('video, audio');
     if (mediaNode) {
-      mediaNode.paused ? mediaNode.play().catch(() => {}) : mediaNode.pause();
+      if (mediaNode.paused) {
+        try { await mediaNode.play(); }
+        catch {
+          if (playableOption.checked && await makePlayable(item, media)) {
+            mediaNode = media.querySelector('video, audio');
+            await mediaNode?.play().catch(() => showToast('The preview could not start. Try opening the file from Finder.'));
+          } else if (!playableOption.checked) showToast('Enable Auto playable copy, or right-click → Make playable copy.');
+        }
+      } else mediaNode.pause();
       open.textContent = mediaNode.paused ? '▶' : 'Ⅱ';
     }
   });
@@ -556,7 +697,18 @@ function createCard(item) {
 
   card.append(media, meta, title, note, hashtags);
   if (downloadControl) card.append(downloadControl);
-  hydrateMedia(media, item);
+  media._ready = hydrateMedia(media, item);
+  media._ready.then(() => {
+    const player = media.querySelector('video, audio');
+    if (!player) return;
+    const syncPlayKey = () => {
+      open.textContent = player.paused ? '▶' : 'Ⅱ';
+      open.title = player.paused ? 'Play media' : 'Pause media';
+      open.setAttribute('aria-label', `${player.paused ? 'Play' : 'Pause'}: ${item.title}`);
+    };
+    ['play', 'pause', 'ended'].forEach(name => player.addEventListener(name, syncPlayKey));
+    syncPlayKey();
+  });
   return card;
 }
 
@@ -572,6 +724,7 @@ function createMotivationSlot(index) {
 }
 
 function render() {
+  closeMediaViewer();
   revokeRenderedURLs();
   motivationGrid.replaceChildren();
   ideaGrid.replaceChildren();
@@ -609,7 +762,7 @@ async function addFiles(fileList, requestedCategory) {
   }
   let category = categoryForDrop(requestedCategory);
   if (category === 'motivation' && !canAddToMotivation(files.length)) {
-    showToast('Motivation holds three videos. Remove one first.');
+    showToast(`Motivation holds ${motivationLimit} videos. Remove one first.`);
     return;
   }
   setStatus('storing local media');
@@ -660,7 +813,7 @@ function addLink(urlValue, titleValue, noteValue, hashtagValue, requestedCategor
   let category = requestedCategory || categoryForURL(url.href);
   if (!categories.has(category)) category = categoryForURL(url.href);
   if (category === 'motivation' && !canAddToMotivation()) {
-    showToast('Motivation holds three videos. Remove one first.');
+    showToast(`Motivation holds ${motivationLimit} videos. Remove one first.`);
     return false;
   }
   state.items.unshift({
@@ -688,7 +841,7 @@ function moveBefore(movingID, targetID, category) {
   const targetIndex = state.items.findIndex(item => item.id === targetID);
   if (movingIndex < 0 || targetIndex < 0) return;
   if (category === 'motivation' && state.items[movingIndex].category !== 'motivation' && !canAddToMotivation()) {
-    showToast('Motivation holds three videos. Remove one first.');
+    showToast(`Motivation holds ${motivationLimit} videos. Remove one first.`);
     return;
   }
   const [moving] = state.items.splice(movingIndex, 1);
@@ -703,7 +856,7 @@ function moveToCategory(id, category) {
   const item = state.items.find(entry => entry.id === id);
   if (!item || !categories.has(category)) return;
   if (category === 'motivation' && item.category !== 'motivation' && !canAddToMotivation()) {
-    showToast('Motivation holds three videos. Remove one first.');
+    showToast(`Motivation holds ${motivationLimit} videos. Remove one first.`);
     return;
   }
   item.category = category;
@@ -713,6 +866,7 @@ function moveToCategory(id, category) {
 }
 
 async function removeItem(id) {
+  if (id === activeVisualDownloadID) { showToast('Finish the media job before deleting this signal.'); return; }
   const index = state.items.findIndex(item => item.id === id);
   if (index < 0) return;
   const [removed] = state.items.splice(index, 1);
@@ -728,6 +882,7 @@ function showCardMenu(x, y, id) {
   const item = state.items.find(entry => entry.id === id);
   const canReveal = Boolean(item?.storageID && nativeBridge);
   cardMenu.querySelector('[data-menu-action="reveal"]').hidden = !canReveal;
+  cardMenu.querySelector('[data-menu-action="playable"]').hidden = item?.type !== 'file' || !item.storageID || !/^(video|audio)\//.test(item.mime);
   cardMenu.querySelector('[data-reveal-divider]').hidden = !canReveal;
   cardMenu.classList.add('is-visible');
   const width = 210;
@@ -792,6 +947,10 @@ cardMenu.addEventListener('click', event => {
   if (!action || !id) return;
   clickSound();
   if (action === 'reveal') revealManagedFile(state.items.find(item => item.id === id));
+  else if (action === 'playable') {
+    const item = state.items.find(item => item.id === id);
+    if (item) makePlayable(item, document.querySelector(`[data-item-id="${CSS.escape(id)}"] .idea-card__media`));
+  }
   else if (action === 'delete') removeItem(id);
   else moveToCategory(id, action);
 });

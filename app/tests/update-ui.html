@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ramin Station — Update appearance test</title><link rel="stylesheet" href="../styles.css"><link rel="stylesheet" href="../updates.css"></head>
+<body><div class="window-drag-strip"><span>UPDATE UI PREVIEW — NO FILES WILL BE INSTALLED</span></div><main class="station" aria-label="Ramin Station media toolkit v2.1"><img class="station__art" src="../assets/base-ui.png" alt="Ramin Station"><div class="station__subtitle">MEDIA TOOLKIT V2.1</div></main>
+<script>
+let previewState={available:true,currentVersion:'2.1.0',version:'2.1.1',notes:'Playback improvements and small refinements.',platform:'windows'};
+window.webkit={messageHandlers:{raminStation:{postMessage(message){setTimeout(()=>{
+if(message.action==='updateInstall'){window.raminUpdateChanged({phase:'download',progress:65,message:'Downloading update… (appearance test)'});setTimeout(()=>window.raminUpdateChanged({phase:'ready',progress:100,message:'Ready to restart (appearance test)'}),600);window.raminNativeResolve(message.id,{ok:true});return}
+if(message.action==='updateRestart'){previewState={available:false,currentVersion:'2.1.1',platform:'windows',message:'Update complete (appearance test).'};window.raminUpdateChanged(previewState);location.href='update-ui.html?installed=1';return}
+window.raminNativeResolve(message.id,previewState);
+},0)}}}};
+if(location.search.includes('installed=1'))previewState={available:false,currentVersion:'2.1.1',platform:'windows',message:'Update complete (appearance test).'};
+</script><script src="../updates.js"></script></body></html>

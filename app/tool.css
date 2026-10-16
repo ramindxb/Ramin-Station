@@ -184,6 +184,9 @@ button, input, select { font: inherit; }
 }
 
 .field-label { display: block; margin: 0 0 .55vw .3vw; color: rgba(204,205,210,.58); font-size: clamp(8px, .7vw, 12px); letter-spacing: .16em; }
+.playback-option { display: flex; align-items: center; gap: .45vw; margin-top: .55vw; color: var(--silver); font-size: clamp(8px,.63vw,11px); letter-spacing: .04em; cursor: pointer; }
+.playback-option input { accent-color: var(--accent); margin: 0; }
+.playback-option small { display: block; margin-top: .15vw; color: rgba(204,205,210,.5); font-size: .92em; letter-spacing: 0; }
 .url-row, .path-row { display: grid; grid-template-columns: 1fr auto; gap: .7vw; }
 .source-picker { display: grid; grid-template-columns: repeat(2, auto); gap: .55vw; }
 .text-input {

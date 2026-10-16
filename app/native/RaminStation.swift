@@ -20,6 +20,9 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     private let processLock = NSLock()
     private var currentProcess: Process?
     private var cancelRequested = false
+    private var jobActive = false
+    private var mediaServer: ManagedMediaServer?
+    private lazy var appUpdater = StationUpdater(dataRoot: visualBrainStateURL.deletingLastPathComponent(), bundle: Bundle.main.bundleURL)
 
     private lazy var managedBinDirectory: URL = {
         if let override = ProcessInfo.processInfo.environment["RAMIN_STATION_BIN"], !override.isEmpty {
@@ -30,11 +33,13 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     }()
 
     private lazy var visualBrainStateURL: URL = {
+        if let override = ProcessInfo.processInfo.environment["RAMIN_STATION_STATE"], !override.isEmpty { return URL(fileURLWithPath: override) }
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return applicationSupport.appendingPathComponent("Ramin Station/visual-brain.json", isDirectory: false)
     }()
 
     private lazy var visualBrainMediaDirectory: URL = {
+        if let override = ProcessInfo.processInfo.environment["RAMIN_STATION_MEDIA_ROOT"], !override.isEmpty { return URL(fileURLWithPath: override, isDirectory: true) }
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return applicationSupport.appendingPathComponent("Ramin Station/Visual Brain Files", isDirectory: true)
     }()
@@ -48,6 +53,8 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        mediaServer = ManagedMediaServer(root: visualBrainMediaDirectory)
+        try? mediaServer?.start()
         configureMenus()
         let controller = WKUserContentController()
         controller.add(self, name: "raminStation")
@@ -97,9 +104,21 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         }
         webView.loadFileURL(resources.appendingPathComponent("index.html"), allowingReadAccessTo: resources)
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.global(qos: .utility).async {
+            guard self.appUpdater.startupReceipt(ready: false) else { DispatchQueue.main.async { NSApp.terminate(nil) }; return }
+            self.appUpdater.loadCached()
+            self.emitUpdate(self.appUpdater.status)
+            if let result = try? self.appUpdater.check(force: false) { self.emitUpdate(result) }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        DispatchQueue.global(qos: .utility).async {
+            if !self.appUpdater.startupReceipt(ready: true) { DispatchQueue.main.async { NSApp.terminate(nil) } }
+        }
+    }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .linkActivated,
@@ -114,10 +133,39 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "raminStation",
+              message.frameInfo.isMainFrame,
+              let sourceURL = message.frameInfo.request.url, sourceURL.isFileURL,
+              let resources = Bundle.main.resourceURL?.appendingPathComponent("app").path,
+              sourceURL.standardizedFileURL.path.hasPrefix(resources + "/"),
               let body = message.body as? [String: Any],
               let requestID = body["id"] as? Int,
               let action = body["action"] as? String else { return }
         let payload = body["payload"] as? [String: Any] ?? [:]
+
+        if action == "updateStatus" { respond(requestID, appUpdater.status); return }
+        if action == "updateAck" { respond(requestID, ["ok": true]); return }
+        if action == "updateRestart" {
+            guard appUpdater.canRestart else { respond(requestID, ["error": "No update is ready to restart."]); return }
+            respond(requestID, ["ok": true])
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+            return
+        }
+        if action == "updateCheck" || action == "updateInstall" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    if action == "updateCheck" {
+                        let result = try self.appUpdater.check(force: true)
+                        self.emitUpdate(result); self.respond(requestID, result)
+                    } else {
+                        try self.beginJob()
+                        defer { self.finishJob() }
+                        try self.appUpdater.install(event: self.emitUpdate)
+                        self.respond(requestID, ["ok": true])
+                    }
+                } catch { self.respond(requestID, ["error": error.localizedDescription]) }
+            }
+            return
+        }
 
         if action == "chooseFolder" {
             chooseFolder(requestID: requestID)
@@ -153,6 +201,17 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             saveVisualBrain(requestID: requestID, state: payload["state"])
             return
         }
+        if action == "visualBrainMediaURL" {
+            do {
+                let directory = try visualBrainItemDirectory(payload["storageID"])
+                let file = try visualBrainFile(in: directory, name: payload["name"] as? String)
+                guard let url = mediaServer?.url(storageID: directory.lastPathComponent, name: file.lastPathComponent) else {
+                    throw StationError("The local preview service is not ready yet.")
+                }
+                respond(requestID, ["url": url])
+            } catch { respond(requestID, ["error": error.localizedDescription]) }
+            return
+        }
         if action.hasPrefix("visualBrainImport") || action == "visualBrainRevealFile" || action == "visualBrainDeleteFile" {
             handleVisualBrainFileAction(requestID: requestID, action: action, payload: payload)
             return
@@ -172,6 +231,12 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
                 case "install": result = try self.installTools(payload)
                 case "download": result = try self.download(payload)
                 case "visualBrainDownload": result = try self.visualBrainDownload(payload)
+                case "visualBrainMakePlayable":
+                    try self.beginJob()
+                    defer { self.finishJob() }
+                    let directory = try self.visualBrainItemDirectory(payload["storageID"])
+                    let source = try self.visualBrainFile(in: directory, name: payload["name"] as? String)
+                    result = try self.playableCopy(source, enabled: true).result
                 case "compress": result = try self.compress(payload)
                 default: throw StationError("Unknown action.")
                 }
@@ -221,6 +286,12 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         applicationMenu.addItem(withTitle: "Quit Ramin Station", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         applicationItem.submenu = applicationMenu
 
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "File")
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(showUpdates), keyEquivalent: "")
+        updateItem.target = self
+        fileMenu.addItem(updateItem); fileItem.submenu = fileMenu; mainMenu.addItem(fileItem)
+
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
@@ -231,6 +302,15 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         editMenu.addItem(withTitle: "Select All", action: NSSelectorFromString("selectAll:"), keyEquivalent: "a")
         editItem.submenu = editMenu
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showUpdates() {
+        webView.evaluateJavaScript("window.stationUpdates && window.stationUpdates.open()", completionHandler: nil)
+    }
+
+    private func emitUpdate(_ value: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async { self.webView?.evaluateJavaScript("window.raminUpdateChanged && window.raminUpdateChanged(\(json))", completionHandler: nil) }
     }
 
     private func handleWindowControl(_ control: String) {
@@ -286,11 +366,19 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
 
     private func visualBrainStoredFile(in directory: URL) throws -> URL {
         let files = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-        guard let file = files.first(where: {
+        guard let file = files.sorted(by: { ($0.lastPathComponent.contains(" - Playable.") ? 0 : 1) < ($1.lastPathComponent.contains(" - Playable.") ? 0 : 1) }).first(where: {
             !$0.hasDirectoryPath && !$0.lastPathComponent.hasSuffix(".part") && !$0.lastPathComponent.hasSuffix(".ytdl")
         }) else {
             throw StationError("The managed Visual Brain file is missing.")
         }
+        return file
+    }
+
+    private func visualBrainFile(in directory: URL, name: String?) throws -> URL {
+        let name = (name?.isEmpty == false) ? name! : try visualBrainStoredFile(in: directory).lastPathComponent
+        guard name == URL(fileURLWithPath: name).lastPathComponent, !name.hasPrefix(".") else { throw StationError("Invalid media filename.") }
+        let file = directory.appendingPathComponent(name).standardizedFileURL
+        guard file.resolvingSymlinksInPath().path == file.path, fileManager.fileExists(atPath: file.path) else { throw StationError("The managed media file is missing.") }
         return file
     }
 
@@ -331,7 +419,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
                 if fileManager.fileExists(atPath: directory.path) { try fileManager.removeItem(at: directory) }
                 respond(requestID, ["ok": true])
             case "visualBrainRevealFile":
-                let destination = try visualBrainStoredFile(in: directory)
+                let destination = try visualBrainFile(in: directory, name: payload["name"] as? String)
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
                 respond(requestID, ["ok": true])
             default:
@@ -354,7 +442,11 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     private func dependencies(_ requested: [String]? = nil) -> [String: Any] {
         let tools = Set(requested ?? ["ffmpeg", "ytdlp", "deno"])
         var result: [String: Any] = [:]
-        if tools.contains("ffmpeg") { result["ffmpeg"] = commandInfo("ffmpeg", arguments: ["-version"]) }
+        if tools.contains("ffmpeg") {
+            var info = commandInfo("ffmpeg", arguments: ["-version"])
+            if findExecutable("ffprobe") == nil { info["ready"] = false; info["version"] = "ffprobe missing — run setup" }
+            result["ffmpeg"] = info
+        }
         if tools.contains("ytdlp") { result["ytdlp"] = commandInfo("yt-dlp", arguments: ["--version"]) }
         if tools.contains("deno") { result["deno"] = commandInfo("deno", arguments: ["--version"]) }
         return result
@@ -378,7 +470,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         let requested = Set(payload["tools"] as? [String] ?? [])
         try fileManager.createDirectory(at: managedBinDirectory, withIntermediateDirectories: true)
 
-        if requested.contains("ffmpeg") && findExecutable("ffmpeg") == nil {
+        if requested.contains("ffmpeg") && (findExecutable("ffmpeg") == nil || findExecutable("ffprobe") == nil) {
             emitEvent(message: "Installing verified FFmpeg package…", progress: nil)
             try installFFmpeg()
         }
@@ -524,7 +616,9 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             outputFolder = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         }
         try fileManager.createDirectory(at: outputFolder, withIntermediateDirectories: true)
-        var baseArguments = ["--no-playlist", "--newline", "--retries", "5", "--fragment-retries", "5", "--progress-template", "download:RS_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "-o", outputFolder.appendingPathComponent("%(title)s.%(ext)s").path]
+        var baseArguments = ["--no-playlist", "--no-simulate", "--no-overwrites", "--newline", "--retries", "5", "--fragment-retries", "5", "--print", "after_move:RS_FILE:%(filepath)j", "--progress-template", "download:RS_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "-o", outputFolder.appendingPathComponent("%(title).150B [%(id)s].%(ext)s").path]
+        baseArguments += ["--progress"]
+        if let ffmpeg = findExecutable("ffmpeg") { baseArguments += ["--ffmpeg-location", URL(fileURLWithPath: ffmpeg).deletingLastPathComponent().path] }
 
         if let deno = findExecutable("deno") { baseArguments += ["--js-runtimes", "deno:\(deno)"] }
 
@@ -554,18 +648,30 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             ]
         }
 
-        beginJob()
+        try beginJob()
         defer { finishJob() }
         emitEvent(message: "yt-dlp connected — reading media info…", progress: 1)
         var lastOutput = ""
         for (index, attempt) in authenticationAttempts.enumerated() {
             if index > 0 { emitEvent(message: "Retrying with \(attempt.label)…", progress: 1) }
-            let result = try runStreaming(ytdlp, baseArguments + attempt.arguments + [text], kind: "download")
+            let result = try runStreaming(ytdlp, baseArguments + attempt.arguments + [text], kind: "download", progressSpan: payload["autoPlayable"] as? Bool == false ? 100 : 90)
             lastOutput = result.output
             if wasCancelled() { throw StationError("Operation cancelled.") }
             if result.status == 0 {
+                guard let line = result.output.components(separatedBy: .newlines).last(where: { $0.hasPrefix("RS_FILE:") }),
+                      let data = String(line.dropFirst(8)).data(using: .utf8),
+                      let path = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String else {
+                    throw StationError("Download saved, but yt-dlp did not report its final filename. Run Setup / Update.")
+                }
+                let original = URL(fileURLWithPath: path).standardizedFileURL
+                guard original.deletingLastPathComponent().path == outputFolder.standardizedFileURL.path,
+                      original.resolvingSymlinksInPath().path == original.path, fileManager.fileExists(atPath: original.path) else { throw StationError("The downloaded file location could not be verified.") }
+                let playable = try playableCopy(original, enabled: payload["autoPlayable"] as? Bool != false)
                 emitEvent(message: payload["managedVisualBrainOutput"] == nil ? "Media saved directly to Downloads" : "Media saved to Visual Brain", progress: 100)
-                return ["message": "Download complete", "folder": outputFolder.path]
+                var response = playable.result
+                response["message"] = playable.warning.isEmpty ? "Download complete" : "Downloaded — playback needs attention"
+                response["folder"] = outputFolder.path
+                return response
             }
             if index == 0 && !needsCookieRetry(result.output) { break }
         }
@@ -575,24 +681,35 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     private func visualBrainDownload(_ payload: [String: Any]) throws -> [String: Any] {
         let directory = try visualBrainItemDirectory(payload["storageID"])
         try fileManager.createDirectory(at: visualBrainMediaDirectory, withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: directory.path) { try fileManager.removeItem(at: directory) }
+        guard !fileManager.fileExists(atPath: directory.path) else { throw StationError("This Visual Brain download already exists.") }
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         do {
             var downloadPayload = payload
             downloadPayload["managedVisualBrainOutput"] = directory.path
-            _ = try download(downloadPayload)
-            let destination = try visualBrainStoredFile(in: directory)
+            var result = try download(downloadPayload)
+            let destination = try visualBrainFile(in: directory, name: result["name"] as? String)
             let mime = UTType(filenameExtension: destination.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-            return [
-                "message": "Download complete",
-                "storageID": payload["storageID"] as? String ?? "",
-                "name": destination.lastPathComponent,
-                "title": destination.deletingPathExtension().lastPathComponent,
-                "mime": mime
-            ]
+            result["storageID"] = payload["storageID"] as? String ?? ""
+            result["title"] = destination.deletingPathExtension().lastPathComponent
+            result["mime"] = mime
+            return result
         } catch {
-            try? fileManager.removeItem(at: directory)
+            // Never delete a successfully downloaded original if conversion fails.
+            if (try? visualBrainStoredFile(in: directory)) == nil { try? fileManager.removeItem(at: directory) }
             throw error
+        }
+    }
+
+    private func playableCopy(_ source: URL, enabled: Bool) throws -> PlayableCopy {
+        do {
+            return try MediaCompatibility.prepare(source, enabled: enabled, find: findExecutable,
+                run: { executable, args, duration in
+                    try self.runStreaming(executable, args, kind: executable.hasSuffix("ffprobe") ? "probe" : "playable", progressBase: 90, progressSpan: 9, duration: duration)
+                }, cancelled: wasCancelled, event: { self.emitEvent(message: $0, progress: $1) })
+        } catch {
+            let warning = "Original saved. Playable copy stopped: \(error.localizedDescription)"
+            emitEvent(message: warning, progress: nil)
+            return PlayableCopy(file: source, original: source, mode: "failed", warning: warning)
         }
     }
 
@@ -644,7 +761,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         let outputFolder = baseFolder.appendingPathComponent(editReady ? "Ramin Station Edit" : "Ramin Station HEVC", isDirectory: true)
         try fileManager.createDirectory(at: outputFolder, withIntermediateDirectories: true)
 
-        beginJob()
+        try beginJob()
         defer { finishJob() }
         emitEvent(message: "Found \(files.count) matching video file(s).", progress: 0)
         for (index, source) in files.enumerated() {
@@ -713,26 +830,31 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         process.standardError = pipe
         process.environment = processEnvironment()
         processLock.lock()
+        if cancelRequested { processLock.unlock(); throw StationError("Operation cancelled.") }
         currentProcess = process
+        do { try process.run() } catch { currentProcess = nil; processLock.unlock(); throw error }
         processLock.unlock()
-        try process.run()
 
         var output = ""
-        var pending = ""
+        var pending = Data()
         while true {
             let data = pipe.fileHandleForReading.availableData
             if data.isEmpty { break }
-            let chunk = String(data: data, encoding: .utf8) ?? ""
-            output.append(chunk)
-            if output.count > 200_000 { output = String(output.suffix(100_000)) }
-            pending.append(chunk)
-            let lines = pending.components(separatedBy: .newlines)
-            pending = lines.last ?? ""
-            for line in lines.dropLast() {
+            pending.append(data)
+            // Decode complete lines so Persian/Unicode filenames survive pipe boundaries.
+            while let newline = pending.firstIndex(of: 10) {
+                let line = String(decoding: pending[..<newline], as: UTF8.self).trimmingCharacters(in: .newlines)
+                pending.removeSubrange(...newline)
+                output.append(line + "\n")
+                if output.count > 200_000 { output = String(output.suffix(100_000)) }
                 handleStreamLine(line, kind: kind, progressBase: progressBase, progressSpan: progressSpan, duration: duration)
             }
         }
-        if !pending.isEmpty { handleStreamLine(pending, kind: kind, progressBase: progressBase, progressSpan: progressSpan, duration: duration) }
+        if !pending.isEmpty {
+            let line = String(decoding: pending, as: UTF8.self)
+            output.append(line)
+            handleStreamLine(line, kind: kind, progressBase: progressBase, progressSpan: progressSpan, duration: duration)
+        }
         process.waitUntilExit()
         processLock.lock()
         if currentProcess === process { currentProcess = nil }
@@ -741,6 +863,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
     }
 
     private func handleStreamLine(_ line: String, kind: String, progressBase: Double, progressSpan: Double, duration: Double) {
+        if kind == "probe" { return }
         let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         if let range = clean.range(of: "RS_PROGRESS:") {
@@ -749,7 +872,7 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
             let percent = Double(percentText) ?? 0
             let speed = values.count > 1 ? values[1] : ""
             let eta = values.count > 2 ? values[2] : ""
-            emitEvent(message: "Downloading \(Int(percent))%  •  \(speed)  •  ETA \(eta)", progress: percent)
+            emitEvent(message: "Downloading \(Int(percent))%  •  \(speed)  •  ETA \(eta)", progress: progressBase + percent * progressSpan / 100)
         } else if kind != "download", duration > 0, clean.hasPrefix("out_time_us="), let microseconds = Double(clean.dropFirst("out_time_us=".count)) {
             let fraction = min(1, max(0, microseconds / 1_000_000 / duration))
             emitEvent(message: "Encoding \(Int(fraction * 100))% of current file", progress: progressBase + progressSpan * fraction)
@@ -760,15 +883,18 @@ final class RaminStationApp: NSObject, NSApplicationDelegate, WKScriptMessageHan
         }
     }
 
-    private func beginJob() {
+    private func beginJob() throws {
         processLock.lock()
+        defer { processLock.unlock() }
+        guard !jobActive else { throw StationError("Another media job is running. Finish or cancel it first.") }
+        jobActive = true
         cancelRequested = false
         currentProcess = nil
-        processLock.unlock()
     }
 
     private func finishJob() {
         processLock.lock()
+        jobActive = false
         currentProcess = nil
         processLock.unlock()
     }

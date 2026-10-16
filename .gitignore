@@ -27,4 +27,7 @@ app/windows/installer/payload/
 *.psd
 work/
 outputs/
+.station-update-secrets/
+*update-private*.pem
+app/windows/updater-payload/
 

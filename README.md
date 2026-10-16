@@ -8,7 +8,7 @@ A tactile retro desktop media toolkit for downloading media, preparing video fil
 
 [Website](https://raminpiri.ir/station) · [Latest release](https://github.com/ramindxb/Ramin-Station/releases/latest) · [Report a bug](https://github.com/ramindxb/Ramin-Station/issues)
 
-> Version 2.0 is an unsigned personal release for macOS and Windows. Read the platform notes before installing.
+> Version 2.1 is an unsigned personal release for macOS and Windows. Read the platform notes before installing.
 
 ## Features
 
@@ -23,11 +23,13 @@ A tactile retro desktop media toolkit for downloading media, preparing video fil
 - Cancel active download and transcode jobs.
 - Use native `Command+V` and `Ctrl+V` clipboard paste.
 - Save Instagram, YouTube, music, image, video, and audio references inside **Visual Brain**.
-- Pin three motivation signals, organize ideas by category, attach notes and searchable client hashtags, drag to reorder, and right-click to remove.
+- Pin five motivation signals, organize ideas by category, attach notes and searchable client hashtags, drag to reorder, and right-click to remove.
 - Copy newly imported Visual Brain files into the app's managed storage and reveal them in Finder or Explorer.
 - Download saved links in the background with inline progress; completed links become local-file cards.
 - Keep Visual Brain data private on the local computer with persistent native metadata storage.
 - Move the borderless app from the dedicated black drag strip at the top of every screen.
+- Automatically prepare compatible playable copies when needed, without overwriting the original. See [playback policy](app/PLAYBACK.md).
+- Check for signed updates quietly; only show a corner notice when a newer version exists. See [update and backup policy](app/UPDATES.md).
 
 ## Download and install
 
@@ -35,7 +37,7 @@ Download the appropriate package from [GitHub Releases](https://github.com/ramin
 
 ### macOS
 
-1. Download `Ramin-Station-2.0-macOS.dmg`.
+1. Download `Ramin-Station-2.1.0-macOS.dmg`.
 2. Drag **Ramin Station** into Applications.
 3. Because V2 is not notarized, Control-click the app and choose **Open** on first launch.
 
@@ -43,8 +45,8 @@ The macOS app supports Apple Silicon and Intel and targets macOS 13 or newer.
 
 ### Windows
 
-- Use `Ramin-Station-2.0-Windows-Setup.exe` for a normal per-user installation.
-- Use `Ramin-Station-2.0-Windows-Portable.zip` if you prefer a portable copy.
+- Use `Ramin-Station-2.1.0-Windows-Setup.exe` for a normal per-user installation.
+- Use `Ramin-Station-2.1.0-Windows-Portable.zip` if you prefer a portable copy.
 
 Windows SmartScreen may display **Unknown Publisher** because V2 is not code-signed.
 
@@ -106,11 +108,11 @@ app/
 
 ## Automated releases
 
-Every pushed tag matching `v*` runs the GitHub release workflow. It builds all four packages, generates `SHA256SUMS.txt`, and creates a GitHub Release.
+Every pushed tag matching `v*` runs the GitHub release workflow. With the `STATION_UPDATE_PRIVATE_KEY` Actions secret configured, it builds all four packages, generates checksums and signed update metadata, and creates a GitHub Release. Without that secret, automatic publication is skipped; publish locally signed packages as described in [UPDATES.md](app/UPDATES.md). Existing releases and their signed packages are never overwritten by the workflow.
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
 ## Responsible use

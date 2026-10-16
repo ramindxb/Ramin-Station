@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Visual Brain — isolated layout test</title></head>
+<body style="margin:0;background:#050607">
+  <iframe title="Visual Brain layout preview" allowfullscreen style="display:block;width:100vw;height:100vh;border:0"></iframe>
+  <script>
+    // Sample bridge only; no access to the user's saved library or native file actions.
+    fetch('../visual-brain.html').then(response => response.text()).then(html => {
+      document.querySelector('iframe').srcdoc = html
+        .replace('<head>', '<head><base href="/">')
+        .replace('<script src="visual-brain.js">', '<script src="tests/visual-brain-fixture.js"><\/script><script src="visual-brain.js">');
+    });
+  </script>
+</body>
+</html>

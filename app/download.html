@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ramin Station — Download</title>
   <link rel="stylesheet" href="tool.css" />
+  <link rel="stylesheet" href="updates.css" />
 </head>
 <body>
   <div class="window-drag-strip" data-window-drag aria-label="Drag window">
@@ -74,12 +75,13 @@
         <div class="control-block">
           <span class="field-label">SAVE TO</span>
           <div class="output-value"><span>Downloads</span><span class="codec-lock">AUTO</span></div>
+          <label class="playback-option" title="Checks playback after download. Remuxes losslessly when possible; otherwise makes a high-quality copy. The original is always kept."><input type="checkbox" data-auto-playable checked /><span>AUTO PLAYABLE COPY<small>Original always kept</small></span></label>
         </div>
       </div>
 
       <section class="terminal-console" aria-label="Download activity">
         <div class="terminal-console__bar"><span><i></i><i></i><i></i> DOWNLOAD TERMINAL</span><b data-progress-label>0%</b></div>
-        <div class="terminal-console__lines" data-terminal><p><em>›</em> Waiting for a URL…</p></div>
+        <div class="terminal-console__lines" data-terminal><p><em>›</em> Waiting for a URL…</p><p><em>›</em> Playable copy: lossless when possible, otherwise high quality. Original kept.</p></div>
         <div class="terminal-console__progress"><i data-progress-bar></i></div>
       </section>
 
@@ -92,8 +94,9 @@
       </div>
     </section>
 
-    <div class="readout"><span>YT-DLP + FFMPEG + DENO</span><span class="readout__status" data-status>READY</span><span>DESKTOP V2.0</span></div>
+    <div class="readout"><span>YT-DLP + FFMPEG + DENO</span><span class="readout__status" data-status>READY</span><span>DESKTOP V2.1</span></div>
   </main>
   <script src="tool.js"></script>
+  <script src="updates.js"></script>
 </body>
 </html>

@@ -27,9 +27,16 @@ jobs:
           node --check app/tool.js
           node --check app/visual-brain.js
           node --check app/server.js
+          node --check app/playback.js
+          node --check app/updates.js
+          node --test app/tests/*.test.js
 
       - name: Type-check macOS app
-        run: swiftc -parse-as-library -typecheck -framework Cocoa -framework WebKit app/native/RaminStation.swift
+        run: swiftc -parse-as-library -typecheck -framework Cocoa -framework WebKit -framework AVFoundation -framework Network app/native/RaminStation.swift app/native/MediaCompatibility.swift app/native/ManagedMediaServer.swift app/native/Updates.swift
+
+      - name: Test updater protocol, archive validation and rollback
+        working-directory: app/updater
+        run: go test -race ./...
 
       - name: Build Windows packages
         run: zsh app/windows/build-windows.sh

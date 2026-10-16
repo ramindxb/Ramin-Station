@@ -17,9 +17,10 @@ var payload embed.FS
 
 const (
 	appName = "Ramin Station"
-	version = "2.0"
 	idYes   = 6
 )
+
+var version = "2.1.0"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {

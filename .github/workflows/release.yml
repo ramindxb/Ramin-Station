@@ -9,7 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  release-mode:
+    runs-on: ubuntu-latest
+    outputs:
+      automatic: ${{ steps.mode.outputs.automatic }}
+    steps:
+      - name: Select signed release publication mode
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATION_UPDATE_PRIVATE_KEY: ${{ secrets.STATION_UPDATE_PRIVATE_KEY }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; preserving its signed packages."
+            echo "automatic=false" >> "$GITHUB_OUTPUT"
+          elif [[ -z "$STATION_UPDATE_PRIVATE_KEY" ]]; then
+            echo "No Actions signing key configured. Publish locally signed artifacts using app/UPDATES.md."
+            echo "automatic=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "automatic=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-release:
+    needs: release-mode
+    if: needs.release-mode.outputs.automatic == 'true'
     runs-on: macos-15
     steps:
       - name: Check out repository
@@ -30,17 +53,32 @@ jobs:
       - name: Generate checksums
         working-directory: dist
         run: |
+          version="$(node -p 'require("../app/update-config.json").version')"
+          test "$GITHUB_REF_NAME" = "v$version"
           shasum -a 256 \
-            Ramin-Station-2.0-macOS.dmg \
-            Ramin-Station-2.0-macOS.zip \
-            Ramin-Station-2.0-Windows-Setup.exe \
-            Ramin-Station-2.0-Windows-Portable.zip \
+            "Ramin-Station-$version-macOS.dmg" \
+            "Ramin-Station-$version-macOS.zip" \
+            "Ramin-Station-$version-Windows-Setup.exe" \
+            "Ramin-Station-$version-Windows-Portable.zip" \
             > SHA256SUMS.txt
+
+      - name: Sign update metadata
+        env:
+          STATION_UPDATE_PRIVATE_KEY: ${{ secrets.STATION_UPDATE_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$STATION_UPDATE_PRIVATE_KEY" ]]; then
+            echo "Signing key is not configured. Refusing to publish an unsigned update feed."
+            exit 1
+          fi
+          version="$(node -p 'require("./app/update-config.json").version')"
+          node -e 'const fs=require("fs"),path=require("path"); fs.writeFileSync(path.join(process.env.RUNNER_TEMP,"station-update-private.pem"),process.env.STATION_UPDATE_PRIVATE_KEY,{mode:0o600});'
+          node app/updater/sign-update.js sign app/update-config.json dist "release-notes/v$version.md" "$RUNNER_TEMP/station-update-private.pem"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="$(node -p 'require("./app/update-config.json").version')"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release already exists; keeping its uploaded packages."
             exit 0
@@ -51,11 +89,12 @@ jobs:
             notes=(--generate-notes)
           fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/Ramin-Station-2.0-macOS.dmg \
-            dist/Ramin-Station-2.0-macOS.zip \
-            dist/Ramin-Station-2.0-Windows-Setup.exe \
-            dist/Ramin-Station-2.0-Windows-Portable.zip \
+            "dist/Ramin-Station-$version-macOS.dmg" \
+            "dist/Ramin-Station-$version-macOS.zip" \
+            "dist/Ramin-Station-$version-Windows-Setup.exe" \
+            "dist/Ramin-Station-$version-Windows-Portable.zip" \
             dist/SHA256SUMS.txt \
+            dist/updates-stable.json \
             --verify-tag \
             --title "Ramin Station ${GITHUB_REF_NAME#v}" \
             "${notes[@]}"

@@ -1,0 +1,13 @@
+{
+  "product": "RaminStation",
+  "version": "2.1.0",
+  "build": 210,
+  "channel": "stable",
+  "bundleID": "com.raminpiri.raminstation",
+  "publicKey": "KCm9leCCcxOX/jl5JQbm9n+pxCKBYOfgn8+47RApU9c=",
+  "feeds": [
+    "https://raminpiri.ir/station/updates/stable.json",
+    "https://github.com/ramindxb/Ramin-Station/releases/latest/download/updates-stable.json"
+  ],
+  "hosts": ["raminpiri.ir", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]
+}

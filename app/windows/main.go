@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"embed"
 	"encoding/base64"
@@ -15,12 +16,14 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/moxcomic/go-webview"
@@ -57,15 +60,29 @@ type bridgeRequest struct {
 }
 
 type application struct {
-	view       webview.WebView
-	hwnd       uintptr
-	binDir     string
-	client     *http.Client
-	jobMu      sync.Mutex
-	jobCancel  context.CancelFunc
-	jobProcess *exec.Cmd
-	cancelled  bool
+	view              webview.WebView
+	hwnd              uintptr
+	binDir            string
+	client            *http.Client
+	jobMu             sync.Mutex
+	jobCancel         context.CancelFunc
+	jobProcess        *exec.Cmd
+	cancelled         bool
+	jobActive         bool
+	updateMu          sync.Mutex
+	updateState       map[string]any
+	updateReady       bool
+	updaterPath       string
+	updaterConfigPath string
 }
+
+var managedMediaToken = func() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}()
 
 func main() {
 	serverURL, closeServer, err := serveAssets()
@@ -97,11 +114,23 @@ func main() {
 		client: &http.Client{Timeout: 30 * time.Minute},
 	}
 	configureNativeWindow(app.hwnd)
+	if err := app.initUpdates(); err != nil {
+		app.updateState = map[string]any{"available": false, "platform": "windows", "currentVersion": "2.1.0", "message": "Updater could not start: " + err.Error()}
+	}
+	if !app.updateReceipt(false) {
+		return
+	}
 	if err := w.Bind("nativeBridgeMessage", app.handleBridge); err != nil {
 		panic(err)
 	}
 	w.Init(bridgeScript)
 	w.Navigate(serverURL + "/index.html")
+	go func() {
+		if result, err := app.updaterRun("status"); err == nil {
+			app.emitUpdate(result)
+		}
+		_, _ = app.checkUpdates(false)
+	}()
 	w.Run()
 }
 
@@ -127,7 +156,14 @@ func serveAssets() (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	server := &http.Server{Handler: http.FileServer(http.FS(content)), ReadHeaderTimeout: 5 * time.Second}
+	assets := http.FileServer(http.FS(content))
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/managed-media/") {
+			serveManagedMedia(w, r)
+			return
+		}
+		assets.ServeHTTP(w, r)
+	}), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	return "http://" + listener.Addr().String(), func() { _ = server.Close() }, nil
 }
@@ -153,6 +189,29 @@ func (a *application) handleBridge(raw string) map[string]any {
 	var result map[string]any
 	var err error
 	switch request.Action {
+	case "updateStatus":
+		result = a.updateStatus()
+	case "updateCheck":
+		result, err = a.checkUpdates(true)
+	case "updateInstall":
+		result, err = a.installUpdate()
+	case "updateAck":
+		if !a.updateReceipt(true) {
+			err = errors.New("update startup validation failed")
+			a.windowControl("close")
+		} else {
+			result = map[string]any{"ok": true}
+		}
+	case "updateRestart":
+		a.updateMu.Lock()
+		ready := a.updateReady
+		a.updateMu.Unlock()
+		if !ready {
+			err = errors.New("no update is ready to restart")
+		} else {
+			result = map[string]any{"ok": true}
+			a.windowControl("close")
+		}
 	case "dependencies":
 		result = a.dependencies(stringList(request.Payload["tools"]))
 	case "install":
@@ -161,6 +220,28 @@ func (a *application) handleBridge(raw string) map[string]any {
 		result, err = a.download(request.Payload)
 	case "visualBrainDownload":
 		result, err = a.visualBrainDownload(request.Payload)
+	case "visualBrainMediaURL":
+		var directory, file string
+		directory, err = a.visualBrainItemDirectory(request.Payload)
+		if err == nil {
+			file, err = managedMediaFile(directory, stringValue(request.Payload, "name", ""))
+		}
+		if err == nil {
+			result = map[string]any{"url": "/managed-media/" + managedMediaToken + "/" + stringValue(request.Payload, "storageID", "") + "/" + url.PathEscape(filepath.Base(file))}
+		}
+	case "visualBrainMakePlayable":
+		err = a.beginJob()
+		if err == nil {
+			defer a.finishJob()
+			var directory, file string
+			directory, err = a.visualBrainItemDirectory(request.Payload)
+			if err == nil {
+				file, err = managedMediaFile(directory, stringValue(request.Payload, "name", ""))
+			}
+			if err == nil {
+				result = a.playableCopy(file, true).result()
+			}
+		}
 	case "compress":
 		result, err = a.compress(request.Payload)
 	case "chooseFolder":
@@ -240,7 +321,7 @@ func visualBrainStoredFile(directory string) (string, error) {
 		return "", err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".part") && !strings.HasSuffix(entry.Name(), ".ytdl") {
+		if !entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && !strings.HasSuffix(entry.Name(), ".part") && !strings.HasSuffix(entry.Name(), ".ytdl") {
 			return filepath.Join(directory, entry.Name()), nil
 		}
 	}
@@ -313,7 +394,7 @@ func (a *application) handleVisualBrainFileAction(action string, payload map[str
 		}
 		return map[string]any{"ok": true}, nil
 	case "visualBrainRevealFile":
-		destination, err := visualBrainStoredFile(directory)
+		destination, err := managedMediaFile(directory, stringValue(payload, "name", ""))
 		if err != nil {
 			return nil, err
 		}
@@ -440,7 +521,12 @@ func (a *application) dependencies(requested []string) map[string]any {
 	}
 	result := map[string]any{}
 	if contains(requested, "ffmpeg") {
-		result["ffmpeg"] = a.commandInfo("ffmpeg", "-version")
+		info := a.commandInfo("ffmpeg", "-version")
+		if _, err := a.findExecutable("ffprobe"); err != nil {
+			info["ready"] = false
+			info["version"] = "ffprobe missing — run setup"
+		}
+		result["ffmpeg"] = info
 	}
 	if contains(requested, "ytdlp") {
 		result["ytdlp"] = a.commandInfo("yt-dlp", "--version")
@@ -489,7 +575,8 @@ func (a *application) environment() []string {
 func (a *application) installTools(payload map[string]any) (map[string]any, error) {
 	requested := stringList(payload["tools"])
 	if contains(requested, "ffmpeg") {
-		if _, err := a.findExecutable("ffmpeg"); err != nil {
+		_, probeErr := a.findExecutable("ffprobe")
+		if _, err := a.findExecutable("ffmpeg"); err != nil || probeErr != nil {
 			a.emit("Installing verified FFmpeg package…", nil)
 			if err := a.installFFmpeg(); err != nil {
 				return nil, err
@@ -730,7 +817,11 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return nil, err
 	}
-	baseArgs := []string{"--no-playlist", "--newline", "--retries", "5", "--fragment-retries", "5", "--progress-template", "download:RS_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "-o", filepath.Join(outputDir, "%(title)s.%(ext)s")}
+	baseArgs := []string{"--no-playlist", "--no-simulate", "--no-overwrites", "--newline", "--retries", "5", "--fragment-retries", "5", "--print", "after_move:RS_FILE:%(filepath)j", "--progress-template", "download:RS_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "-o", filepath.Join(outputDir, "%(title).150B [%(id)s].%(ext)s")}
+	if ffmpeg, findErr := a.findExecutable("ffmpeg"); findErr == nil {
+		baseArgs = append(baseArgs, "--ffmpeg-location", filepath.Dir(ffmpeg))
+	}
+	baseArgs = append(baseArgs, "--progress")
 	if deno, findErr := a.findExecutable("deno"); findErr == nil {
 		baseArgs = append(baseArgs, "--js-runtimes", "deno:"+deno)
 	}
@@ -773,7 +864,9 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 			authAttempt{label: "Firefox cookies", args: []string{"--cookies-from-browser", "firefox"}},
 		)
 	}
-	a.beginJob()
+	if err := a.beginJob(); err != nil {
+		return nil, err
+	}
 	defer a.finishJob()
 	a.emit("yt-dlp connected — reading media info…", numberPointer(1))
 	lastOutput := ""
@@ -781,18 +874,42 @@ func (a *application) download(payload map[string]any) (map[string]any, error) {
 		if index > 0 {
 			a.emit("Retrying with "+attempt.label+"…", numberPointer(1))
 		}
-		output, runErr := a.runStreaming(ytdlp, append(append(append([]string{}, baseArgs...), attempt.args...), url), "download", 0, 100, 0)
+		span := 90.0
+		if payload["autoPlayable"] == false {
+			span = 100
+		}
+		output, runErr := a.runStreaming(ytdlp, append(append(append([]string{}, baseArgs...), attempt.args...), url), "download", 0, span, 0)
 		lastOutput = output
 		if a.wasCancelled() {
 			return nil, errors.New("operation cancelled")
 		}
 		if runErr == nil {
+			original := ""
+			for _, line := range strings.Split(output, "\n") {
+				if strings.HasPrefix(line, "RS_FILE:") {
+					_ = json.Unmarshal([]byte(strings.TrimPrefix(line, "RS_FILE:")), &original)
+				}
+			}
+			if original == "" || filepath.Clean(filepath.Dir(original)) != filepath.Clean(outputDir) {
+				return nil, errors.New("download saved, but its final filename could not be verified; run Setup / Update")
+			}
+			resolved, resolveErr := filepath.EvalSymlinks(original)
+			if resolveErr != nil || !strings.EqualFold(filepath.Clean(resolved), filepath.Clean(original)) {
+				return nil, errors.New("downloaded file location could not be verified")
+			}
+			playable := a.playableCopy(original, payload["autoPlayable"] != false)
 			message := "Media saved directly to Downloads"
 			if stringValue(payload, "managedVisualBrainOutput", "") != "" {
 				message = "Media saved to Visual Brain"
 			}
 			a.emit(message, numberPointer(100))
-			return map[string]any{"message": "Download complete", "folder": outputDir}, nil
+			result := playable.result()
+			result["folder"] = outputDir
+			result["message"] = "Download complete"
+			if playable.Warning != "" {
+				result["message"] = "Downloaded — playback needs attention"
+			}
+			return result, nil
 		}
 		if index == 0 && !needsCookieRetry(output) {
 			break
@@ -809,18 +926,22 @@ func (a *application) visualBrainDownload(payload map[string]any) (map[string]an
 	if err := os.MkdirAll(a.visualBrainMediaDirectory(), 0o755); err != nil {
 		return nil, err
 	}
-	_ = os.RemoveAll(directory)
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		return nil, errors.New("this Visual Brain download already exists")
+	}
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, err
 	}
 	payload["managedVisualBrainOutput"] = directory
-	if _, err := a.download(payload); err != nil {
-		_ = os.RemoveAll(directory)
+	result, err := a.download(payload)
+	if err != nil {
+		if _, fileErr := visualBrainStoredFile(directory); fileErr != nil {
+			_ = os.RemoveAll(directory)
+		}
 		return nil, err
 	}
-	destination, err := visualBrainStoredFile(directory)
+	destination, err := managedMediaFile(directory, stringValue(result, "name", ""))
 	if err != nil {
-		_ = os.RemoveAll(directory)
 		return nil, err
 	}
 	extension := strings.ToLower(filepath.Ext(destination))
@@ -831,13 +952,10 @@ func (a *application) visualBrainDownload(payload map[string]any) (map[string]an
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
-	return map[string]any{
-		"message":   "Download complete",
-		"storageID": stringValue(payload, "storageID", ""),
-		"name":      filepath.Base(destination),
-		"title":     strings.TrimSuffix(filepath.Base(destination), filepath.Ext(destination)),
-		"mime":      mime,
-	}, nil
+	result["storageID"] = stringValue(payload, "storageID", "")
+	result["title"] = strings.TrimSuffix(filepath.Base(destination), filepath.Ext(destination))
+	result["mime"] = mime
+	return result, nil
 }
 
 func needsCookieRetry(output string) bool {
@@ -922,7 +1040,9 @@ func (a *application) compress(payload map[string]any) (map[string]any, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return nil, err
 	}
-	a.beginJob()
+	if err := a.beginJob(); err != nil {
+		return nil, err
+	}
 	defer a.finishJob()
 	a.emit(fmt.Sprintf("Found %d matching video file(s).", len(files)), numberPointer(0))
 	for index, source := range files {
@@ -979,16 +1099,22 @@ func (a *application) probeDuration(source string) float64 {
 	return duration
 }
 
-func (a *application) beginJob() {
+func (a *application) beginJob() error {
 	a.jobMu.Lock()
+	defer a.jobMu.Unlock()
+	if a.jobActive {
+		return errors.New("another media job is running; finish or cancel it first")
+	}
+	a.jobActive = true
 	a.cancelled = false
 	a.jobCancel = nil
 	a.jobProcess = nil
-	a.jobMu.Unlock()
+	return nil
 }
 
 func (a *application) finishJob() {
 	a.jobMu.Lock()
+	a.jobActive = false
 	a.jobCancel = nil
 	a.jobProcess = nil
 	a.jobMu.Unlock()
@@ -1004,7 +1130,9 @@ func (a *application) cancelCurrentJob() {
 		cancel()
 	}
 	if process != nil && process.Process != nil {
-		_ = exec.Command("taskkill.exe", "/PID", strconv.Itoa(process.Process.Pid), "/T", "/F").Run()
+		kill := exec.Command("taskkill.exe", "/PID", strconv.Itoa(process.Process.Pid), "/T", "/F")
+		kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		_ = kill.Run()
 	}
 	a.emit("Process cancelled by user.", nil)
 }
@@ -1019,18 +1147,33 @@ func (a *application) runStreaming(executable string, args []string, kind string
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, args...)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	command.Env = a.environment()
 	reader, writer := io.Pipe()
 	command.Stdout = writer
 	command.Stderr = writer
 	a.jobMu.Lock()
+	if a.cancelled {
+		a.jobMu.Unlock()
+		_ = writer.Close()
+		return "", errors.New("operation cancelled")
+	}
 	a.jobCancel = cancel
 	a.jobProcess = command
-	a.jobMu.Unlock()
 	if err := command.Start(); err != nil {
+		a.jobMu.Unlock()
 		_ = writer.Close()
 		return "", err
 	}
+	a.jobMu.Unlock()
+	defer func() {
+		a.jobMu.Lock()
+		if a.jobProcess == command {
+			a.jobProcess = nil
+			a.jobCancel = nil
+		}
+		a.jobMu.Unlock()
+	}()
 	done := make(chan error, 1)
 	go func() { done <- command.Wait(); _ = writer.Close() }()
 	var output strings.Builder
@@ -1051,6 +1194,9 @@ func (a *application) runStreaming(executable string, args []string, kind string
 }
 
 func (a *application) handleStreamLine(line, kind string, progressBase, progressSpan, duration float64) {
+	if kind == "probe" {
+		return
+	}
 	line = strings.TrimSpace(line)
 	if index := strings.Index(line, "RS_PROGRESS:"); index >= 0 {
 		values := strings.Split(line[index+len("RS_PROGRESS:"):], "|")
@@ -1062,7 +1208,7 @@ func (a *application) handleStreamLine(line, kind string, progressBase, progress
 		if len(values) > 2 {
 			eta = strings.TrimSpace(values[2])
 		}
-		a.emit(fmt.Sprintf("Downloading %d%%  •  %s  •  ETA %s", int(percent), speed, eta), numberPointer(percent))
+		a.emit(fmt.Sprintf("Downloading %d%%  •  %s  •  ETA %s", int(percent), speed, eta), numberPointer(progressBase+percent*progressSpan/100))
 	} else if kind != "download" && duration > 0 && strings.HasPrefix(line, "out_time_us=") {
 		microseconds, _ := strconv.ParseFloat(strings.TrimPrefix(line, "out_time_us="), 64)
 		fraction := microseconds / 1_000_000 / duration
